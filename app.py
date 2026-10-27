@@ -127,27 +127,6 @@ def init_db():
             conn.execute("INSERT OR IGNORE INTO subjects VALUES (?,?)", (s, i))
         for (s,) in conn.execute("SELECT DISTINCT subject FROM items"):
             conn.execute("INSERT OR IGNORE INTO subjects VALUES (?,?)", (s, 99))
-    if conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0:
-        t, tm = today(), (date.today() + timedelta(days=1)).isoformat()
-        seeds = [
-            ("语文作业：抄写生字 + 预习第 12 课", "语文", "homework",
-             "抄写本课生字各 2 遍，预习第 12 课，读 3 遍。", "", "", t, 0, ""),
-            ("数学练习册 P42-43", "数学", "homework",
-             "做完先自己检查一遍，答案明天晚上 8 点后可见。", "", "", tm, 0, ""),
-            ("英语听力 Unit 5", "英语", "listening",
-             "先听 2 遍，再跟读。上传 MP3 后，这里可以直接播放、变速、循环。",
-             "", "", t, 0, ""),
-            ("数学练习册答案（示例：设了可见时间）", "数学", "answer",
-             "这条设了可见时间，到时间前看不到内容，只会提示有 1 条未到时间。",
-             "", "", "", 0, tm + "T20:00"),
-            ("本周五语文听写范围", "语文", "notice",
-             "听写第 11、12 课生字和词语，周五早上到校听写。", "", "", "", 0, ""),
-        ]
-        for title, subj, kind, body, link, _, due, pinned, visible in seeds:
-            conn.execute(
-                "INSERT INTO items (title,subject,kind,body,link_url,created,due,pinned,visible_at,child_id)"
-                " VALUES (?,?,?,?,?,?,?,?,?,0)",
-                (title, subj, kind, body, link, now_dt(), due, pinned, visible))
     conn.commit()
     conn.close()
 
