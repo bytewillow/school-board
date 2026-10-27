@@ -391,6 +391,10 @@ h1{font-size:24px;margin:8px 0 4px}h2{font-size:20px;margin:0}h3{font-size:18px;
 .arow:first-of-type{border-top:0}
 .arow .t{flex:1;min-width:0}.arow .t a{color:#222}
 @media(max-width:700px){.admin-grid{grid-template-columns:1fr}}
+.admin-hub{display:grid;gap:16px;margin-top:12px}
+.admin-hub a{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #e8e8e8;border-radius:20px;padding:22px;box-shadow:0 1px 3px rgba(0,0,0,.05);color:#222}
+.admin-hub a b{flex:1;font-size:20px}
+.admin-hub a span:last-child{font-size:22px;color:#777}
 .card{background:#fff;border:1px solid #e8e8e8;border-radius:20px;
 padding:16px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 .tag{display:inline-block;font-size:13px;background:#eef2f8;border-radius:999px;padding:3px 10px;margin-right:6px}
@@ -862,29 +866,35 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
     return page("登记 - 作业板", body)
 
 
+def admin_top(back_href, back_text):
+    """子页面顶栏：只放回退 + 退出管理，不放任何删除按钮，避免误触。"""
+    return (f"<div class='admin-bar'><a href='{back_href}'>{back_text}</a>"
+            "<span style='flex:1'></span>"
+            "<form method='post' action='/admin/logout' style='margin:0'>"
+            "<button class='ghost small'>退出管理</button></form></div>")
+
+
 def admin_page(msg=""):
-    """管理页紧凑版：摘要只一行、孩子/学科双栏并排、每条只一行，
-    不再放登记表单（登记只走登记页），不再一卡一卡往下堆，
-    也不再把退出按钮藏到最底下。"""
+    """管理首页：只做三个大入口，不直接放删除按钮；
+    孩子/科目/登记内容各进自己的子页面，登记内容再按孩子分桶。"""
     items, subjects, children = all_items(), get_subjects(), get_children()
     hw = [i for i in items if i["kind"] == "homework"]
     done_n = sum(1 for i in hw if i["done"])
-    rows = ""
-    for it in items:
-        gated = it["visible_at"] and it["visible_at"] > now_dt()
-        cn = child_name(children, it.get("child_id", 0))
-        meta = f"{esc(it['subject'])} · {KINDS.get(it['kind'], '')}"
-        if cn:
-            meta += f" · {esc(cn)}"
-        if gated:
-            meta += " · ⏳ 未到显示时间"
-        if it['kind'] == 'homework' and it['done']:
-            meta += " · ✅ 已完成"
-        rows += (f"<div class='arow'><div class='t'><a href='/item?id={it['id']}'>{esc(it['title'])}</a>"
-                 f"<div class='meta'>{meta}</div></div>"
-                 f"<form method='post' action='/admin/delete' style='margin:0'>"
-                 f"<input type='hidden' name='id' value='{it['id']}'>"
-                 "<button class='danger small'>删除</button></form></div>")
+    body = (f"<div class='admin-bar'><span>作业完成 {done_n} / {len(hw)}</span>"
+            f"<span class='muted'>共 {len(items)} 条 · {len(children)} 个孩子 · {len(subjects)} 门学科</span>"
+            "<span style='flex:1'></span>"
+            "<form method='post' action='/admin/logout' style='margin:0'><button class='ghost small'>退出管理</button></form></div>"
+            f"{f'<p><b>{esc(msg)}</b></p>' if msg else ''}"
+            "<div class='admin-hub'>"
+            f"<a href='/admin/children'><b>孩子管理</b><span class='muted'>{len(children)} 个孩子</span><span>›</span></a>"
+            f"<a href='/admin/subjects'><b>科目管理</b><span class='muted'>{len(subjects)} 门学科</span><span>›</span></a>"
+            f"<a href='/admin/items'><b>登记项目管理</b><span class='muted'>{len(items)} 条 · 按孩子分开管理</span><span>›</span></a>"
+            "</div>")
+    return page("管理 - 作业板", body)
+
+
+def admin_children_page():
+    items, children = all_items(), get_children()
     child_rows = ""
     for c in children:
         n = sum(1 for i in items if i.get("child_id") == c["id"])
@@ -897,6 +907,17 @@ def admin_page(msg=""):
                        f"<form method='post' action='/admin/child/delete' style='margin:0'>"
                        f"<input type='hidden' name='id' value='{c['id']}'>"
                        "<button class='danger small'>删除</button></form></div>")
+    body = (admin_top("/admin", "← 回管理")
+            + "<h3>孩子管理</h3>"
+            + "<form class='inline-form' method='post' action='/admin/child'>"
+            + "<input name='name' aria-label='孩子名字' placeholder='孩子名字，如：小明' required>"
+            + "<button>加孩子</button></form>"
+            + (child_rows or "<p class='muted'>还没加孩子。</p>"))
+    return page("孩子管理 - 作业板", body)
+
+
+def admin_subjects_page():
+    items, subjects = all_items(), get_subjects()
     subj_rows = ""
     for s in subjects:
         n = sum(1 for i in items if i["subject"] == s)
@@ -904,23 +925,50 @@ def admin_page(msg=""):
                    f"<input type='hidden' name='name' value='{esc(s)}'>"
                    "<button class='danger small'>删除</button></form>") if n == 0 else ""
         subj_rows += f"<div class='arow'><div class='t'><b>{esc(s)}</b><div class='meta'>{n} 条</div></div>{del_btn}</div>"
-    body = (f"<div class='admin-bar'><span>作业完成 {done_n} / {len(hw)}</span>"
-            f"<span class='muted'>共 {len(items)} 条 · {len(children)} 个孩子 · {len(subjects)} 门学科</span>"
-            f"<span style='flex:1'></span>"
-            f"<form method='post' action='/admin/logout' style='margin:0'><button class='ghost small'>退出管理</button></form></div>"
-            f"{f'<p><b>{esc(msg)}</b></p>' if msg else ''}"
-            "<div class='admin-grid'>"
-            "<div class='admin-panel'><h3>孩子</h3>"
-            "<form class='inline-form' method='post' action='/admin/child'>"
-            "<input name='name' aria-label='孩子名字' placeholder='孩子名字，如：小明' required>"
-            "<button>加孩子</button></form>"
-            + (child_rows or "<p class='muted'>还没加孩子。</p>") + "</div>"
-            "<div class='admin-panel'><h3>学科</h3>"
-            "<form class='inline-form' method='post' action='/admin/subject'>"
-            "<input name='name' aria-label='新学科' placeholder='新学科，如：道法' required>"
-            "<button>加学科</button></form>" + subj_rows + "</div></div>"
-            "<h3>已登记内容</h3>" + (rows or "<p>还没有内容。</p>"))
-    return page("管理 - 作业板", body)
+    body = (admin_top("/admin", "← 回管理")
+            + "<h3>科目管理</h3>"
+            + "<form class='inline-form' method='post' action='/admin/subject'>"
+            + "<input name='name' aria-label='新学科' placeholder='新学科，如：道法' required>"
+            + "<button>加学科</button></form>" + subj_rows)
+    return page("科目管理 - 作业板", body)
+
+
+def admin_items_page(child_id=None):
+    items, children = all_items(), get_children()
+    if child_id is None:
+        buckets = [(0, "共享（未指定孩子）")] + [(c["id"], c["name"]) for c in children]
+        links = ""
+        for bid, label in buckets:
+            n = sum(1 for i in items if i.get("child_id", 0) == bid)
+            links += (f"<a href='/admin/items?child={bid}'><b>{esc(label)}</b>"
+                      f"<span class='muted'>{n} 条</span><span>›</span></a>")
+        body = (admin_top("/admin", "← 回管理")
+                + "<h3>登记项目管理</h3>"
+                + "<p class='muted'>先选孩子，再管理这个孩子的登记内容；删孩子不会删内容，删掉的孩子的内容会回到共享。</p>"
+                + f"<div class='admin-hub'>{links}</div>")
+        return page("登记项目管理 - 作业板", body)
+    valid = [0] + [c["id"] for c in children]
+    if child_id not in valid:
+        return admin_items_page(None)
+    label = "共享（未指定孩子）" if child_id == 0 else child_name(children, child_id)
+    rows = ""
+    for it in [i for i in items if i.get("child_id", 0) == child_id]:
+        gated = it["visible_at"] and it["visible_at"] > now_dt()
+        meta = f"{esc(it['subject'])} · {KINDS.get(it['kind'], '')}"
+        if gated:
+            meta += " · ⏳ 未到显示时间"
+        if it['kind'] == 'homework' and it['done']:
+            meta += " · ✅ 已完成"
+        rows += (f"<div class='arow'><div class='t'><a href='/item?id={it['id']}'>{esc(it['title'])}</a>"
+                 f"<div class='meta'>{meta}</div></div>"
+                 f"<form method='post' action='/admin/delete' style='margin:0'>"
+                 f"<input type='hidden' name='id' value='{it['id']}'>"
+                 "<button class='danger small'>删除</button></form></div>")
+    body = (admin_top("/admin/items", "← 回登记项目管理")
+            + f"<h3>{esc(label)}</h3>"
+            + (rows or "<p>这个孩子还没有内容。</p>"))
+    return page("登记项目管理 - 作业板", body)
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1037,6 +1085,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_html(admin_page())
             return
+        if u.path in ("/admin/children", "/admin/subjects", "/admin/items"):
+            if not is_admin(self):
+                self.redirect("/admin")
+                return
+            if u.path == "/admin/children":
+                self.send_html(admin_children_page())
+            elif u.path == "/admin/subjects":
+                self.send_html(admin_subjects_page())
+            else:
+                raw = params.get("child", [""])[0]
+                if raw == "":
+                    self.send_html(admin_items_page(None))
+                else:
+                    try:
+                        self.send_html(admin_items_page(int(raw)))
+                    except ValueError:
+                        self.send_html(admin_items_page(None))
+            return
         if u.path.startswith("/uploads/"):
             name = unquote(urlparse(self.path).path[len("/uploads/"):])
             if "/" in name or ".." in name or not os.path.isfile(os.path.join(UPLOAD_DIR, name)):
@@ -1152,6 +1218,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 item_id = 0
             it = get_item(item_id)
+            child_id = it.get("child_id", 0) if it else 0
             if it and it["stored"]:
                 try:
                     os.remove(os.path.join(UPLOAD_DIR, it["stored"]))
@@ -1161,7 +1228,7 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("DELETE FROM items WHERE id=?", (item_id,))
             conn.commit()
             conn.close()
-            self.redirect("/admin")
+            self.redirect(f"/admin/items?child={child_id}")
             return
         if u.path == "/admin/child":
             name = (fields.get("name") or "").strip()
@@ -1170,7 +1237,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("INSERT OR IGNORE INTO children (name) VALUES (?)", (name,))
                 conn.commit()
                 conn.close()
-            self.redirect("/admin")
+            self.redirect("/admin/children")
             return
         if u.path == "/admin/child/delete":
             try:
@@ -1182,7 +1249,7 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("DELETE FROM children WHERE id=?", (cid,))
             conn.commit()
             conn.close()
-            self.redirect("/admin")
+            self.redirect("/admin/children")
             return
         if u.path == "/admin/child/rename":
             try:
@@ -1198,13 +1265,13 @@ class Handler(BaseHTTPRequestHandler):
                 except sqlite3.IntegrityError:
                     pass
                 conn.close()
-            self.redirect("/admin")
+            self.redirect("/admin/children")
             return
         if u.path == "/admin/subject":
             name = (fields.get("name") or "").strip()
             if name:
                 ensure_subject(name)
-            self.redirect("/admin")
+            self.redirect("/admin/subjects")
             return
         if u.path == "/admin/subject/delete":
             name = (fields.get("name") or "").strip()
@@ -1214,7 +1281,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("DELETE FROM subjects WHERE name=?", (name,))
             conn.commit()
             conn.close()
-            self.redirect("/admin")
+            self.redirect("/admin/subjects")
             return
         self.send_html(error_page("这个操作不存在", "回到首页重新操作一下。"), 404)
 
