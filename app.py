@@ -12,12 +12,12 @@ API：POST /api/items，curl 和 iPhone 捷径都能直接传文件。
 - 只用 1 套风格：Bento 卡片块；只用 1 套柔和配色：底 #f4f5f7、卡片白、
   主色 #2f66c4、完成绿 #2e7d32、删除用暗红；不用玻璃化、黏土化、渐变、着色器。
 - 学科展示是活页夹：大屏左侧竖排彩色标签、小屏顶部横滑标签，一次只翻一门；
-  封面只放进度、提醒、各科计数，学科页只放紧凑标题行，计时器收进可展开，
+  封面只放少量待办、提醒、各科计数，学科页只放紧凑标题行，计时器收进可展开，
   目标是一屏看完一页，不靠下拉堆内容。
 - 边角协调：活页夹只有一个外框圆角 + overflow 裁剪，标签无间隙、活动标签
   背景就是纸面白、圆孔只在标签与纸面之间的脊柱上，不再各处各圆角；
-  顶部不再放孩子/今天过滤，默认看全部；多孩先选本子封面、点开带翻书动画，
-  单孩直接进活页夹；翻书动画 650ms（本子倾斜 300ms），比之前慢一点。
+  顶部不放孩子/今天过滤；多孩先选本子封面（含待办摘要和快捷登记），
+  单孩直接进活页夹；用原生链接立即导航，不用延时动画拦截键盘或新标签打开。
 - 管理页紧凑：摘要只一行、退出放顶部、孩子/学科双栏并排、加孩子/加学科行内表单、
   已登记内容每条只一行，不再放登记表单（登记只走登记页）；登记页也不再放新学科现填
   入口（新学科只走管理），两边不再互相重复；本子页没有“不分本子看全部”入口。
@@ -39,7 +39,7 @@ API：POST /api/items，curl 和 iPhone 捷径都能直接传文件。
           LLM_MODEL（默认 deepseek-chat）、LLM_VISION_MODEL（可选，拍照解析用，默认用 LLM_MODEL）、
           DATA_DIR（默认脚本旁的 data/，Docker 里用 /data）
 AI 录入：登记页文字 / 拍照先解析成草稿，逐条核对后经 /api/ai-batch 批量创建，草稿确认前不入库；
-        外部 AI 走 /api/lists + /api/items（见 SKILL.md），令牌只允许查列表和创建，不能删除和管理；
+        外部 AI 走 /api/lists + /api/items（见 SKILL.md），令牌允许查列表、读取可见内容和创建，不能删除和管理；
         Caddy 公开时只反代 /api/lists 和 /api/items，不要反代 /admin、/api/ai-parse、/api/ai-batch。
 数据：SQLite + data/uploads/ 文件，备份时把 data/ 整个拷走即可。
 """
@@ -437,24 +437,6 @@ button.full{width:100%}.muted{color:#777;font-size:14px}
 .progress{height:10px;background:#eee;border-radius:999px;overflow:hidden;margin:10px 0}
 .progress i{display:block;height:100%;background:#7fb069;border-radius:999px}
 audio,embed,img{max-width:100%}audio{width:100%}
-.player{background:#eef2f8;border-radius:18px;padding:16px;margin:8px 0}
-.player-top{display:flex;gap:16px;align-items:center}
-.playbtn{width:64px;height:64px;min-height:64px;border-radius:50%;background:#2f66c4;color:#fff;font-size:26px;padding:0;flex:none}
-.playbtn:focus-visible{outline:3px solid #2f66c4;outline-offset:2px}
-.player-main{flex:1;min-width:0}
-.player-times{display:flex;justify-content:space-between;font-size:15px;font-variant-numeric:tabular-nums;color:#333;margin-bottom:8px}
-.seek{width:100%;height:12px;accent-color:#2f66c4;margin:0}
-.player-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-.player-row button{min-height:48px;font-size:15px;padding:0 16px}
-.skipbtn{background:#fff;color:#2f66c4;border:1px solid #c9d6ea}
-.speeds{display:flex;gap:6px;flex-wrap:wrap}
-.speeds button{min-height:44px;padding:0 12px;background:#fff;color:#333;border:1px solid #ddd}
-.speeds button.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
-.loopbtn{background:#fff;color:#333;border:1px solid #ddd}
-.loopbtn.on{background:#2e7d32;color:#fff;border-color:#2e7d32}
-.abbtn{background:#fff;color:#333;border:1px solid #ddd}
-.abbtn.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
-.abinfo{font-size:14px;color:#555}
 .back{display:inline-flex;min-height:48px;align-items:center;padding:0 18px;background:#fff;
 border:1px solid #ddd;border-radius:999px;font-size:16px}
 input[type=radio]{width:auto;accent-color:#2f66c4}
@@ -500,6 +482,34 @@ transition:transform 300ms ease,box-shadow 300ms ease}
 }
 @media(prefers-reduced-motion:reduce){.binder.opening,.notebook{animation:none!important;transition:none!important}}
 @media(min-width:900px){.listgrid{grid-template-columns:1fr 1fr}}
+/* Notebook overview and task-first pages. No webfonts or external assets. */
+.notebook{display:flex;flex-direction:column;min-width:0;padding:0;overflow:hidden;transition:box-shadow 150ms ease}
+.notebook-main{display:block;padding:22px;color:inherit;flex:1;min-height:230px}
+.notebook-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.notebook-icon{display:block;width:24px;height:30px;border:2px solid currentColor;border-radius:3px;color:#657587;position:relative}.notebook-icon:before{content:"";position:absolute;left:5px;top:0;bottom:0;border-left:1px solid currentColor}.notebook-icon:after{content:"";position:absolute;left:10px;right:3px;top:8px;height:4px;border-top:1px solid currentColor;border-bottom:1px solid currentColor}.notebook-open{font-size:14px;color:#526477}
+.notebook h2{font-size:22px;overflow-wrap:anywhere}.notebook-summary{font-size:18px;margin:14px 0 6px}
+.notebook-summary strong{font-size:28px;font-variant-numeric:tabular-nums}
+.notebook-meta{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:14px;color:#59616c}
+.notebook-next{font-size:14px;color:#59616c;border-top:1px solid #edf0f3;margin-top:16px;padding-top:12px;overflow-wrap:anywhere}
+.notebook-footer{padding:8px 22px;border-top:1px solid #edf0f3;background:#fafbfc}
+.notebook-footer a{display:inline-flex;align-items:center;min-height:44px;font-size:14px}
+.book-context{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0}
+.book-context h1{font-size:20px;margin:0;overflow-wrap:anywhere}.book-context a{font-size:14px;min-height:44px;display:inline-flex;align-items:center}
+.task-overview{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.task-overview h2{font-size:22px}
+.task-overview .muted{margin:0}.due-label{color:#8a5a25;font-weight:600}.shared-note{font-size:13px;color:#59616c;margin:6px 0}
+.subject-link{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid #edf0f3;color:#222;min-height:56px}
+.subject-link .t{flex:1}.subject-link small{display:block;color:#59616c}.subject-link .arrow{color:#647487}
+.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px}.section-heading a{font-size:14px;min-height:44px;display:flex;align-items:center}
+.entry-switch{display:flex;gap:8px;padding:5px;background:#e9edf3;border-radius:16px;margin:12px 0}
+.entry-switch[hidden],[hidden]{display:none!important}.entry-switch button{flex:1;background:transparent;color:#536174;min-height:48px}
+.entry-switch button[aria-pressed=true]{background:#fff;color:#244f94;box-shadow:0 1px 3px #00000012}
+.entry-header h1{font-size:24px}.entry-header p{margin:4px 0}.entry-section>h2{font-size:20px}
+.form-field{display:block;margin:10px 0 4px;font-size:14px;color:#59616c}.advanced-fields>summary{cursor:pointer;min-height:48px;display:flex;align-items:center;color:#2f66c4;font-size:15px}
+.form-note{margin:0 0 10px;color:#59616c;font-size:13px}.draft-error{color:#a43d38;font-size:14px;margin:8px 0}.draft-card.has-error{border-color:#b94a48}
+.draft-card label{display:block;font-size:14px;color:#59616c}.draft-card label input,.draft-card label select,.draft-card label textarea{display:block}
+.binder-tab[aria-current=page]{font-weight:700}.notebook-main:focus-visible{outline-offset:-5px}.muted{color:#626b76}.row .meta{color:#626b76}
+@media(max-width:700px){.topnav{display:none}.notebooks{gap:14px;margin-top:4px}.notebook-main{min-height:0;padding:18px}.notebook-top{margin-bottom:10px}.notebook h2{font-size:21px}.notebook-summary{margin-top:10px}.notebook-next{margin-top:12px}.notebook-footer{padding:4px 18px}.book-context{margin:0 0 6px}.entry-section.card{margin-top:10px}.entry-switch{margin:10px 0}.binder-tabs{scrollbar-width:thin}.binder-tabs:after{content:'';width:18px;flex-shrink:0}.entry-switch button{padding:0 10px;font-size:16px}}
+
 """
 
 
@@ -507,6 +517,7 @@ def page(title, body):
     return ("<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{esc(title)}</title><style>{CSS}</style>"
+            "<link rel='stylesheet' href='/static/media.css'><script src='/static/media.js' defer></script>"
             "<link rel='manifest' href='/manifest.json'>"
             "<link rel='icon' type='image/png' sizes='192x192' href='/icon-192.png'>"
             "<link rel='apple-touch-icon' href='/apple-touch-icon.png'>"
@@ -550,16 +561,22 @@ def qs(child=0, **kw):
     return ("?" + "&".join(parts)) if parts else ""
 
 
-def compact_row(it, child=0):
+def compact_row(it, child=0, show_subject=False):
     kind = KINDS.get(it["kind"], it["kind"])
-    meta = kind + (f" · 截止 {esc(it['due'])}" if it["due"] else "")
+    meta = (esc(it["subject"]) + " · " if show_subject else "") + kind
+    if it["kind"] == "homework" and not it["done"]:
+        meta += " · <span class='due-label'>" + esc(due_label(it)) + "</span>"
+    elif it["due"]:
+        meta += " · 截止 " + esc(it["due"])
+    if not it.get("child_id"):
+        meta += " · 共享（完成同步所有本子）" if it["kind"] == "homework" else " · 共享"
     if it["kind"] == "homework" and it["done"]:
         meta += " · ✅ 已完成"
     done_btn = ""
     if it["kind"] == "homework" and not it["done"]:
         done_btn = (f"<form method='post' action='/done' style='margin:0'>"
                     f"<input type='hidden' name='id' value='{it['id']}'>"
-                    f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}'>✓ 完成</button></form>")
+                    f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
     return (f"<div class='row'><div class='t'><a href='/item?id={it['id']}{('&child=' + str(child)) if child else ''}'>{esc(it['title'])}</a>"
             f"<div class='meta'>{meta}</div></div>{done_btn}</div>")
 
@@ -586,72 +603,43 @@ def item_card(it, children, detail=False, child=0):
     if it["stored"]:
         url = "/uploads/" + quote(it["stored"])
         mime = it["mime"] or ""
-        if mime.startswith("image/"):
-            out += f"<p><img src='{url}' alt='{esc(it['filename'])}'></p>"
+        if mime.startswith("image/") or mime == "application/pdf" or it["filename"].lower().endswith(".pdf"):
+            gallery_child = it.get("child_id", 0) or child
+            gallery = visible_items(all_items())
+            gallery = filter_child(gallery, gallery_child) if gallery_child else [x for x in gallery if not x.get("child_id")]
+            gallery = [x for x in gallery if x["subject"] == it["subject"] and x["stored"] and (x["mime"] or "").startswith("image/")]
+            images = [{"url": "/uploads/" + quote(x["stored"]), "title": x["title"], "name": x["filename"]} for x in sorted(gallery, key=lambda x: x["id"])]
+            if mime.startswith("image/"):
+                if not any(x["url"] == url for x in images):
+                    images.insert(0, {"url": url, "title": it["title"], "name": it["filename"]})
+                out += (f"<a class='media-open image-open' href='{url}' data-type='image' data-gallery='{esc(json.dumps(images, ensure_ascii=False))}' data-url='{url}' data-title='{esc(it['title'])}'>"
+                        f"<img src='{url}' alt='{esc(it['filename'])}'><span>全屏看图 · 同本同科图片可左右翻动</span></a>")
+            else:
+                out += (f"<div class='document-cover'><p>PDF · {esc(it['filename'])}</p>"
+                        f"<a class='btn media-open' href='{url}' data-type='pdf' data-url='{url}' data-title='{esc(it['title'])}'>全屏阅读 PDF</a>"
+                        "<p class='muted'>逐页翻动、跳页与缩放；无法显示时可打开原文件。</p></div>")
+            out += f"<p><a href='{url}' target='_blank' rel='noopener'>打开原文件 ↗</a></p>"
         elif mime.startswith("audio/"):
-            aid = f"au-{it['id']}"
-            out += (f"<div class='player' id='pl-{aid}'>"
-                    f"<audio id='{aid}' src='{url}' preload='metadata'></audio>"
-                    "<div class='player-top'>"
-                    f"<button class='playbtn' aria-label='播放或暂停'>▶</button>"
-                    "<div class='player-main'>"
-                    "<div class='player-times'><span class='cur'>00:00</span><span class='dur'>--:--</span></div>"
-                    "<input class='seek' type='range' min='0' max='1000' value='0' aria-label='播放进度'>"
-                    "</div></div>"
-                    "<div class='player-row'>"
-                    "<button class='skipbtn' data-skip='-15'>⏪ 15秒</button>"
-                    "<button class='skipbtn' data-skip='15'>15秒 ⏩</button>"
-                    "<span class='speeds'>"
-                    "<button data-rate='0.75'>0.75×</button>"
-                    "<button data-rate='1' class='on'>1×</button>"
-                    "<button data-rate='1.25'>1.25×</button>"
-                    "<button data-rate='1.5'>1.5×</button>"
-                    "<button data-rate='2'>2×</button></span>"
-                    "<button class='loopbtn'>🔁 循环：关</button>"
-                    "<button class='abbtn ab-a'>设 A 点</button>"
-                    "<button class='abbtn ab-b'>设 B 点</button>"
-                    "<button class='abbtn ab-clear'>清除 AB</button>"
-                    "<span class='abinfo'></span></div></div>"
-                    f"<script>(function(){{var box=document.getElementById('pl-{aid}');"
-                    f"var a=document.getElementById('{aid}');"
-                    "var play=box.querySelector('.playbtn'),seek=box.querySelector('.seek'),"
-                    "cur=box.querySelector('.cur'),dur=box.querySelector('.dur'),"
-                    "loop=box.querySelector('.loopbtn'),info=box.querySelector('.abinfo');"
-                    "var abA=null,abB=null,drag=false;"
-                    "function fmt(s){if(!isFinite(s))return '--:--';s=Math.floor(s);"
-                    "return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}"
-                    "function abText(){info.textContent=(abA===null&&abB===null)?'':"
-                    "'AB：'+(abA===null?'?':fmt(abA))+' – '+(abB===null?'?':fmt(abB))}"
-                    "play.onclick=function(){if(a.paused){a.play()}else{a.pause()}};"
-                    "a.onplay=function(){play.textContent='⏸'};"
-                    "a.onpause=function(){play.textContent='▶'};"
-                    "a.onloadedmetadata=function(){dur.textContent=fmt(a.duration)};"
-                    "a.ontimeupdate=function(){if(abA!==null&&abB!==null&&a.currentTime>=abB){a.currentTime=abA}"
-                    "if(!drag&&a.duration){seek.value=Math.round(a.currentTime/a.duration*1000)}"
-                    "cur.textContent=fmt(a.currentTime)};"
-                    "a.onended=function(){if(!a.loop){play.textContent='▶'}};"
-                    "seek.addEventListener('input',function(){drag=true;"
-                    "if(a.duration){a.currentTime=seek.value/1000*a.duration;cur.textContent=fmt(a.currentTime)}});"
-                    "seek.addEventListener('change',function(){drag=false});"
-                    "box.querySelectorAll('.skipbtn').forEach(function(b){b.onclick=function(){"
-                    "a.currentTime=Math.max(0,Math.min(a.duration||0,a.currentTime+parseFloat(b.dataset.skip)))}});"
-                    "box.querySelectorAll('.speeds button').forEach(function(b){b.onclick=function(){"
-                    "a.playbackRate=parseFloat(b.dataset.rate);"
-                    "box.querySelectorAll('.speeds button').forEach(function(x){x.classList.remove('on')});"
-                    "b.classList.add('on')}});"
-                    "loop.onclick=function(){a.loop=!a.loop;loop.classList.toggle('on',a.loop);"
-                    "loop.textContent=a.loop?'🔁 循环：单曲':'🔁 循环：关'};"
-                    "box.querySelector('.ab-a').onclick=function(){abA=a.currentTime;abText()};"
-                    "box.querySelector('.ab-b').onclick=function(){abB=a.currentTime;"
-                    "if(abA!==null&&abB<=abA){var t=abA;abA=abB;abB=t}abText()};"
-                    "box.querySelector('.ab-clear').onclick=function(){abA=null;abB=null;abText()};"
-                    "})();</script>")
-        elif mime == "application/pdf" or it["filename"].lower().endswith(".pdf"):
-            out += f"<p><embed src='{url}' type='application/pdf' width='100%' height='600'></p>"
+            out += (f"<section class='listening-player' data-title='{esc(it['title'])}' aria-label='听力播放器'>"
+                    f"<p class='audio-title'>{esc(it['filename'])}</p><audio controls src='{url}' preload='metadata'></audio>"
+                    "<div class='audio-enhanced' hidden><div class='audio-primary'>"
+                    "<button class='audio-play' type='button' aria-label='播放'>播放</button>"
+                    "<div class='audio-timeline'><div class='audio-times'><span class='audio-current'>00:00</span><span class='audio-duration'>--:--</span></div>"
+                    "<input class='audio-seek' type='range' min='0' max='1000' value='0' aria-label='播放进度' disabled></div></div>"
+                    "<div class='audio-tools'><button type='button' data-skip='-10'>后退 10 秒</button><button type='button' data-skip='10'>前进 10 秒</button>"
+                    "<label>速度 <select class='audio-rate' aria-label='播放速度'><option value='0.75'>0.75×</option><option value='1' selected>1×</option><option value='1.25'>1.25×</option><option value='1.5'>1.5×</option><option value='2'>2×</option></select></label></div>"
+                    "<details class='audio-practice'><summary>跟读练习 · 循环与 AB 复读</summary><div class='audio-tools'>"
+                    "<button type='button' class='audio-loop' aria-pressed='false'>整段循环：关</button><button type='button' class='audio-a'>设起点 A</button>"
+                    "<button type='button' class='audio-b'>设终点 B</button><button type='button' class='audio-clear'>清除 AB</button></div>"
+                    "<p class='audio-ab muted'>先设起点，再播放到终点设置 B；不改变原文件。</p></details>"
+                    "<button type='button' class='audio-native ghost small'>使用浏览器播放器</button></div>"
+                    "<p class='audio-status muted' role='status' aria-live='polite'>加载音频信息…</p></section>")
         out += f"<p><a href='{url}?download=1'>⬇ 下载：{esc(it['filename'])}</a></p>"
     if it["kind"] == "homework":
         label = "↩ 取消完成" if it["done"] else "✅ 标为已完成"
         cls = "" if it["done"] else "done"
+        if not it.get("child_id") and len(children) > 1:
+            out += "<p class='shared-note'>这是一份共享作业，完成状态会同步到所有本子。</p>"
         out += (f"<form method='post' action='/done'><input type='hidden' name='id' value='{it['id']}'>"
                 f"<button class='{cls}'>{label}</button></form>")
     if not detail:
@@ -685,44 +673,89 @@ def child_chips(children, child, view=""):
 
 
 def binder_tabs(subjects, per_subject, active, child, view):
-    """活页夹标签：封面“今天” + 每门一页，标签上带该门的条数，点标签就是翻页。
+    """活页夹标签：封面“总览” + 每门一页，标签上带该门的条数，点标签就是翻页。
     标签和纸面共用一个外框，活动标签背景就是纸面白，中间没有双边框、没有错位圆角。"""
-    tabs = [f"<a role='tab' aria-selected='{str(active == '').lower()}' class='binder-tab{' on' if not active else ''}' "
-            f"href='/{qs(child, view=view)}'><span>📕</span><span class='n'>今天</span></a>"]
+    tabs = [f"<a aria-current='{'page' if active == '' else 'false'}' class='binder-tab{' on' if not active else ''}' "
+            f"href='/{qs(child, view=view)}'><span>📕</span><span class='n'>总览</span></a>"]
     for s in subjects:
         icon, bg, color = subject_meta(s)
         n = len(per_subject.get(s, []))
         if n == 0 and active != s:
             continue
-        tabs.append(f"<a role='tab' aria-selected='{str(active == s).lower()}' "
+        tabs.append(f"<a aria-current='{'page' if active == s else 'false'}' "
                     f"class='binder-tab{' on' if active == s else ''}' style='border-left:6px solid {color}' "
                     f"href='/{qs(child, subject=s, view=view)}'><span>{icon}</span><span class='n'>{esc(s)}</span>"
                     f"<span class='cnt'>{n}</span></a>")
-    return "<div class='binder-tabs' role='tablist' aria-label='学科活页夹'>" + "".join(tabs) + "</div>"
+    return "<nav class='binder-tabs' aria-label='学科活页夹'>" + "".join(tabs) + "</nav>"
 
 
 def binder_wrap(tabs, pane, opening=False):
     spine = "<div class='spine' aria-hidden='true'><i></i><i></i><i></i><i></i><i></i></div>"
     cls = "binder opening" if opening else "binder"
-    return f"<div class='{cls}'>{tabs}{spine}<div class='binder-pane'>{pane}</div></div>"
+    return (f"<div class='{cls}'>{tabs}{spine}<div class='binder-pane'>{pane}</div></div>"
+            "<script>var t=document.querySelector('.binder-tab.on');if(t&&matchMedia('(max-width:700px)').matches){t.parentElement.scrollLeft=Math.max(0,t.offsetLeft-t.parentElement.offsetLeft-12);}</script>")
+
+
+def homework_summary(items):
+    """Visible tasks, including shared items, counted once per notebook."""
+    homework = [i for i in items if i["kind"] == "homework"]
+    pending = sorted((i for i in homework if not i["done"]),
+                     key=lambda i: (i["due"] or "9999-12-31", -i["pinned"], i["id"]))
+    return {"homework": homework, "pending": pending,
+            "overdue": sum(1 for i in pending if i["due"] and i["due"] < today()),
+            "today": sum(1 for i in pending if i["due"] == today()),
+            "undated": sum(1 for i in pending if not i["due"]),
+            "done": sum(1 for i in homework if i["done"])}
+
+
+def due_label(it):
+    if not it["due"]:
+        return "未设截止日期"
+    if it["due"] < today():
+        return "已逾期 · " + it["due"]
+    if it["due"] == today():
+        return "今天截止"
+    return "截止 " + it["due"]
+
+
+def notebook_context(children, child):
+    name = child_name(children, child) or (children[0]["name"] if len(children) == 1 else "")
+    title = esc(name) + "的作业登记簿" if name else "作业登记簿"
+    switch = "<a href='/'>← 选其他本子</a>" if len(children) > 1 else ""
+    return f"<header class='book-context'><h1>{title}</h1>{switch}</header>"
 
 
 def notebook_covers(children, items):
-    """多孩时先选本子：每本一个大封面，点开带翻书动画；单孩/无孩不走这页，直接进活页夹。"""
+    """Independent notebook summaries; shared items match the opened notebook."""
     colors = ["#2f66c4", "#2e7d5b", "#c2702e", "#6a4fc4", "#b94a48"]
-    cards = ""
-    for i, c in enumerate(children):
-        mine = [x for x in items if x.get("child_id") == c["id"]]
-        hw = [x for x in mine if x["kind"] == "homework"]
-        done = sum(1 for x in hw if x["done"])
-        color = colors[i % len(colors)]
-        cards += (f"<a class='notebook' style='border-left-color:{color}' href='/?child={c['id']}'>"
-                  f"<div style='font-size:36px'>📓</div><h2>{esc(c['name'])}的作业登记簿</h2>"
-                  f"<div class='sub'>{len(mine)} 条内容 · 作业完成 {done} / {len(hw)}</div></a>")
-    script = ("<script>document.querySelectorAll('.notebook').forEach(function(a){"
-              "a.addEventListener('click',function(e){e.preventDefault();a.classList.add('opening');"
-              "setTimeout(function(){location.href=a.href;},300);});});</script>")
-    return f"<div class='notebooks'>{cards}</div>" + script
+    cards = []
+    for c in children:
+        mine = filter_child(items, c["id"])
+        stats = homework_summary(mine)
+        shared = sum(1 for i in mine if not i.get("child_id"))
+        pending = stats["pending"]
+        summary = (f"<strong>{len(pending)}</strong> 项待完成" if pending else "暂无待完成作业")
+        urgent = []
+        if stats["overdue"]:
+            urgent.append(f"<span class='due-label'>已逾期 {stats['overdue']} 项</span>")
+        if stats["today"]:
+            urgent.append(f"<span>今天截止 {stats['today']} 项</span>")
+        if stats["undated"]:
+            urgent.append(f"<span>未设日期 {stats['undated']} 项</span>")
+        if not urgent:
+            urgent.append("<span>按自己的节奏来</span>" if pending else "<span>可翻看通知和学习资料</span>")
+        next_item = (f"接下来 · {esc(pending[0]['subject'])} · {esc(pending[0]['title'])}"
+                     if pending else f"共 {len(mine)} 条内容，打开本子查看")
+        color = colors[(c["id"] - 1) % len(colors)]
+        cards.append(f"<article class='notebook' style='border-left-color:{color}'>"
+                     f"<a class='notebook-main' href='/?child={c['id']}' aria-label='打开{esc(c['name'])}的作业登记簿'>"
+                     "<div class='notebook-top'><span class='notebook-icon' aria-hidden='true'></span><span class='notebook-open'>打开本子 →</span></div>"
+                     f"<h2>{esc(c['name'])}的作业登记簿</h2><div class='notebook-summary'>{summary}</div>"
+                     f"<div class='notebook-meta'>{''.join(urgent)}</div>"
+                     f"<div class='notebook-next'>{next_item}</div>"
+                     f"<div class='sub'>{len(mine)} 条内容 · 含 {shared} 条共享内容</div></a>"
+                     f"<footer class='notebook-footer'><a href='/register?child={c['id']}'>＋ 给{esc(c['name'])}登记</a></footer></article>")
+    return "<section class='notebooks' aria-label='选择孩子的登记簿'>" + "".join(cards) + "</section>"
 
 
 def timer_details():
@@ -740,28 +773,34 @@ def add_form(subjects, children, action="/add", preselect_subject="", preselect_
         f"{'checked' if k == 'notice' else ''}> {v}</label>" for k, v in KINDS.items())
     child_radios = ""
     if children:
-        child_radios = ("<p class='muted' style='margin:8px 0 0'>给谁</p><div class='chips'>"
-                        f"<label class='chip'><input type='radio' name='child_id' value='0' {'checked' if not preselect_child else ''}> 全部</label>" +
+        child_radios = ("<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>给谁</legend><div class='chips'>"
+                        f"<label class='chip'><input type='radio' name='child_id' value='0' {'checked' if not preselect_child else ''}> 共享</label>" +
                         "".join(f"<label class='chip'><input type='radio' name='child_id' value='{c['id']}' "
                                 f"{'checked' if preselect_child == c['id'] else ''}> {esc(c['name'])}</label>"
-                                for c in children) + "</div>")
+                                for c in children) + "</div></fieldset>"
+                        "<p class='form-note'>共享内容会出现在每个本子里；共享作业的完成状态也共用。</p>")
     extra = ""
     if show_extra:
-        extra = ("<label class='muted'>到这个时间才显示（答案类建议填）</label>"
-                 "<input type='datetime-local' name='visible_at'>"
+        extra = ("<label class='form-field' for='entry-visible'>到这个时间才显示（答案类建议填）</label>"
+                 "<input id='entry-visible' type='datetime-local' name='visible_at'>"
                  "<label style='display:flex;gap:10px;align-items:center;min-height:48px'>"
                  "<input type='checkbox' name='pinned'> 置顶提醒</label>")
     return (f"<form method='post' action='{action}' enctype='multipart/form-data'>"
-            "<input name='title' aria-label='标题，不填就用文件名' placeholder='标题（不填就用文件名）'>"
-            f"<p class='muted' style='margin:8px 0 0'>学科</p><div class='chips'>{subj_chips}</div>"
-            f"<p class='muted' style='margin:8px 0 0'>类型</p><div class='chips'>{kind_chips}</div>"
             f"{child_radios}"
-            "<div class='formgrid'><div><label class='muted'>截止日期（作业用）</label><input type='date' name='due'></div>"
-            "<div><label class='muted'>原链接（扫描全能王等，可空）</label><input name='link_url' placeholder='https://…'></div></div>"
-            "<textarea name='body' rows='4' placeholder='文字内容（通知正文，没有文件时就填这里）'></textarea>"
-            f"{extra}"
-            "<label class='muted'>上传文件（PDF / 图片 / MP3，最大 50MB，中文文件名会原样保留）</label>"
-            "<input type='file' name='file'><button class='full'>登记</button></form>")
+            "<label class='form-field' for='entry-title'>标题</label>"
+            "<input id='entry-title' name='title' placeholder='例如：数学练习册第 10 页' aria-describedby='title-hint'>"
+            "<p id='title-hint' class='form-note'>可留空，自动使用文件名或正文首行。</p>"
+            f"<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>学科</legend><div class='chips'>{subj_chips}</div></fieldset>"
+            f"<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>类型</legend><div class='chips'>{kind_chips}</div></fieldset>"
+            "<label class='form-field' for='entry-body'>文字内容</label>"
+            "<textarea id='entry-body' name='body' rows='4' placeholder='通知正文、作业要求…'></textarea>"
+            "<label class='form-field' for='entry-due'>截止日期（可选）</label><input id='entry-due' type='date' name='due'>"
+            "<label class='form-field' for='entry-file'>附件（可选）</label>"
+            "<input id='entry-file' type='file' name='file' aria-describedby='file-hint'>"
+            "<p id='file-hint' class='form-note'>PDF / 图片 / MP3，最大 50MB，保留中文文件名。</p>"
+            "<details class='advanced-fields'><summary>更多选项：原链接、定时显示、置顶</summary>"
+            "<label class='form-field' for='entry-link'>原链接</label><input id='entry-link' name='link_url' type='url' placeholder='https://…'>"
+            f"{extra}</details><button class='full'>登记</button></form>")
 
 
 def kid_page(params):
@@ -773,24 +812,28 @@ def kid_page(params):
     view = "all"
     q = params.get("q", [""])[0].strip()
     children = get_children()
+    if child and not any(c["id"] == child for c in children):
+        child = 0
+    if len(children) == 1 and not child:
+        child = children[0]["id"]
     items = filter_child(visible_items(all_items()), child)
     hidden = len(filter_child(all_items(), child)) - len(items)
     subjects = get_subjects()
-    hw = [i for i in items if i["kind"] == "homework"]
-    hw_today = [i for i in hw if i["due"] == today() or not i["due"]]
-    done_n = sum(1 for i in hw_today if i["done"])
-    pct = int(done_n * 100 / len(hw_today)) if hw_today else 100
-    progress = (f"<div class='card'><h3>今天的进度</h3>"
-                f"<div class='progress'><i style='width:{pct}%'></i></div>"
-                f"<p class='muted' style='margin:0'>已完成 {done_n} / {len(hw_today)} 项作业"
-                f"{' · 做完啦，休息一下吧 🌿' if hw_today and done_n == len(hw_today) else ''}"
-                f"{' · 还有 ' + str(hidden) + ' 条内容未到显示时间' if hidden else ''}</p></div>")
+    stats = homework_summary(items)
+    context = notebook_context(children, child)
     per_subject = {}
     for s in subjects:
         per_subject[s] = [i for i in items if i["subject"] == s]
     tabs = binder_tabs(subjects, per_subject, subject, child, view)
+    if params.get("pending", [""])[0] == "1":
+        pane = ("<h2>全部待办</h2><p class='muted'>按截止日期排序，未设日期排在最后。</p>"
+                + "".join(compact_row(i, child, show_subject=True) for i in stats["pending"])
+                + ("<p class='muted'>没有待完成作业。</p>" if not stats["pending"] else ""))
+        return page("待办 - 作业板", context + binder_wrap(tabs, pane))
     if subject:
         shown = [i for i in items if i["subject"] == subject]
+        shown.sort(key=lambda i: (0 if i["kind"] == "homework" and not i["done"] else 1,
+                                  i["due"] or "9999-12-31"))
         if q:
             shown = [i for i in shown if q in i["title"] or q in i["body"]]
         icon, bg, color = subject_meta(subject)
@@ -800,30 +843,38 @@ def kid_page(params):
                 f"作业完成 {sum(1 for i in shown if i['kind'] == 'homework' and i['done'])}"
                 f" / {sum(1 for i in shown if i['kind'] == 'homework')}</div></div></div>"
                 + "".join(compact_row(i, child) for i in shown) +
-                (empty_state("这门今天没有新内容，去登记一条吧。",
-                             f"<p><a class='back' href='/register?subject={quote(subject)}'>去登记{esc(subject)}</a></p>") if not shown else "") +
+                (empty_state("这门没有匹配的内容。",
+                             f"<p><a class='back' href='/register{qs(child, subject=subject)}'>去登记{esc(subject)}</a></p>") if not shown else "") +
                 f"<form method='get'><input name='q' aria-label='在这门里搜索' placeholder='在这门里搜' value='{esc(q)}'>"
                 f"<input type='hidden' name='subject' value='{esc(subject)}'>"
                 f"<input type='hidden' name='view' value='{esc(view)}'>"
                 f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
-        body = binder_wrap(tabs, pane, opening=True)
+        body = context + binder_wrap(tabs, pane, opening=True)
         return page(f"{subject} - 作业板", body)
     pins = [i for i in items if i["kind"] == "announcement" and i["pinned"]][:2]
-    # 封面页：只放进度、提醒、各科计数，点标签翻页，不把各科内容全堆在一屏下拉。
+    # 封面页：少量待办、提醒、各科计数，不把所有作业堆在首页。
     if q:
         shown = [i for i in items if q in i["title"] or q in i["body"]]
         pane = (f"<h2>搜索“{esc(q)}”</h2>" + "".join(compact_row(i, child) for i in shown) +
                 (empty_state(f"没搜到“{q}”，换个词试试，或者去登记一条。",
                              "<p><a class='back' href='/'>← 回首页</a></p>") if not shown else ""))
-        body = binder_wrap(tabs, pane, opening=True)
+        body = context + binder_wrap(tabs, pane, opening=True)
         return page("作业板", body)
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
     if len(children) > 1 and not child and not subject:
         return page("选本子 - 作业板", notebook_covers(children, visible_items(all_items())))
-    pane = (f"<h3>今天的进度</h3><div class='progress'><i style='width:{pct}%'></i></div>"
-            f"<p class='muted' style='margin:0 0 12px'>已完成 {done_n} / {len(hw_today)} 项作业"
-            f"{' · 做完啦，休息一下吧 🌿' if hw_today and done_n == len(hw_today) else ''}"
-            f"{' · 还有 ' + str(hidden) + ' 条内容未到显示时间' if hidden else ''}</p>")
+    pane = (f"<div class='task-overview'><h2>待完成 {len(stats['pending'])} 项</h2>"
+            f"<p class='muted'>已完成 {stats['done']} / {len(stats['homework'])} 项作业</p></div>"
+            f"<p class='muted'>已逾期 {stats['overdue']} · 今天截止 {stats['today']} · 未设日期 {stats['undated']}</p>")
+    if hidden:
+        pane += f"<p class='muted'>另有 {hidden} 条内容未到显示时间</p>"
+    pending = stats["pending"]
+    pane += ("<div class='section-heading'><h3>接下来要做</h3>"
+             f"<a href='/{qs(child, pending='1')}'>全部待办 →</a></div>")
+    if pending:
+        pane += "".join(compact_row(i, child, show_subject=True) for i in pending[:3])
+    else:
+        pane += "<p class='muted'>没有待完成作业，通知和学习资料仍可在各科翻看。</p>"
     if pins:
         pane += ("<h3 style='margin-top:12px'>📌 提醒</h3>" +
                  "".join(f"<p style='margin:6px 0'><a href='/item?id={i['id']}{('&child=' + str(child)) if child else ''}'>{esc(i['title'])}</a></p>"
@@ -837,14 +888,14 @@ def kid_page(params):
         hw_s = [i for i in sub if i["kind"] == "homework"]
         sub_line = (f"作业 {sum(1 for i in hw_s if i['done'])} / {len(hw_s)}"
                     if hw_s else f"{len(sub)} 条")
-        pane += (f"<div class='row'><div class='t'><a href='/{qs(child, subject=s, view=view)}'>{icon} {esc(s)}</a>"
-                 f"<div class='meta'>{sub_line}</div></div>"
-                 f"<a class='back' style='min-height:40px' href='/{qs(child, subject=s, view=view)}'>翻页 →</a></div>")
+        pane += (f"<a class='subject-link' href='/{qs(child, subject=s, view=view)}'>"
+                 f"<span aria-hidden='true'>{icon}</span><span class='t'>{esc(s)}<small>{sub_line}</small></span>"
+                 "<span class='arrow' aria-hidden='true'>→</span></a>")
     pane += (f"<form method='get'><input name='q' aria-label='搜索全部标题和内容' placeholder='搜全部标题 / 内容' value='{esc(q)}'>"
              f"<input type='hidden' name='view' value='{esc(view)}'>"
              f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>"
              + timer_details())
-    body = binder_wrap(tabs, pane, opening=True)
+    body = context + binder_wrap(tabs, pane, opening=True)
     return page("作业板", body)
 
 
@@ -870,13 +921,24 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
 或都连着 Tailscale。</p>
 <p class='muted'>这个接口只在局域网 / Tailscale 内可信，没有对外公开；
 如需加口令，部署时设 API_TOKEN，请求再带 X-API-Token 头。</p></details>"""
-    body = (f"{f'<p><b>{esc(msg)}</b></p>' if msg else ''}"
-            + ai_entry_html(subjects, children, preselect_child)
-            + "<div class='card'><h3>登记作业 / 通知</h3>"
-            "<p class='muted'>谁都可以登记，不需要密码；标题不填就用文件名。</p>"
-            + add_form(subjects, children, "/add", preselect_subject, preselect_child) + "</div>"
+    if not any(c["id"] == preselect_child for c in children):
+        preselect_child = children[0]["id"] if len(children) == 1 else 0
+    message_html = f"<p role='status'>{esc(msg)}</p>" if msg else ""
+    body = ("<header class='entry-header'><h1>登记一条新内容</h1>"
+            "<p class='muted'>可信家庭网络内使用，无需登录。选择手动填写，或先识别再核对。</p></header>"
+            + message_html +
+            "<div class='entry-switch' hidden aria-label='登记方式'>"
+            "<button type='button' data-entry='manual' aria-controls='manual-entry' aria-pressed='true'>手动登记</button>"
+            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='false'>文字 / 拍照识别</button></div>"
+            "<section id='manual-entry' class='entry-section card'><h2>手动登记</h2>"
+            + add_form(subjects, children, "/add", preselect_subject, preselect_child) + "</section>"
+            + "<section id='ai-entry' class='entry-section'>" + ai_entry_html(subjects, children) + "</section>"
             + api_help +
-            "<p><a class='back' href='/'>← 回首页</a> <a class='back' href='/admin'>去管理</a></p>")
+            "<p><a class='back' href='/'>← 回首页</a> <a class='back' href='/admin'>去管理</a></p>"
+            "<script>(function(){var buttons=document.querySelectorAll('[data-entry]');"
+            "function show(mode){document.getElementById('manual-entry').hidden=mode!=='manual';document.getElementById('ai-entry').hidden=mode!=='ai';"
+            "buttons.forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.entry===mode));});}"
+            "document.querySelector('.entry-switch').hidden=false;buttons.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.entry);});});show('manual');})();</script>")
     return page("登记 - 作业板", body)
 
 
@@ -1032,7 +1094,7 @@ def admin_api_token_page(new_token=""):
     env, created = api_token_status()
     status = (f"<p class='muted'>环境变量令牌：{'已配置' if env else '未配置'}；"
               f"管理页生成的令牌：{'已生成，生成时间 ' + esc(created) if created else '未生成'}。</p>"
-              "<p class='muted'>令牌只允许查列表和创建条目，不能删除、管理孩子或学科；"
+              "<p class='muted'>令牌允许查列表、读取可见内容和创建条目，不能删除、管理孩子或学科；"
               "生成新令牌会使旧的数据库令牌失效，环境变量令牌不受影响。</p>")
     shown = ""
     if new_token:
@@ -1138,9 +1200,9 @@ def call_llm_parse(text, image_bytes, image_ctype):
     return True, "", drafts
 
 
-def ai_entry_html(subjects, children, preselect_child=0):
+def ai_entry_html(subjects, children):
     """登记页 AI 录入卡：文字 / 拍照先解析成草稿，逐条核对后批量创建；粘贴 JSON 是不花 API 钱的免费路径。"""
-    lists_json = json.dumps({"subjects": subjects, "children": children}, ensure_ascii=False)
+    lists_json = json.dumps({"subjects": subjects, "children": children}, ensure_ascii=False).replace("<", "\\u003c")
     js = r"""
 var lists = JSON.parse(document.getElementById('sb-lists').textContent);
 var kinds = [['notice','通知'],['homework','作业'],['material','学习资料'],['answer','答案'],['listening','听力'],['announcement','提醒']];
@@ -1149,7 +1211,7 @@ function sel(options, value) { var s = mk('select'); options.forEach(function(o)
 function renderDrafts(drafts) {
   var box = document.getElementById('ai-drafts'); box.innerHTML = '';
   drafts.forEach(function(d) {
-    var card = mk('div'); card.className = 'card'; card.style.margin = '12px 0';
+    var card = mk('div'); card.className = 'card draft-card'; card.style.margin = '12px 0';
     var chk = mk('input'); chk.type = 'checkbox'; chk.checked = true; chk.style.width = '22px'; chk.style.height = '22px';
     var title = mk('input'); title.value = d.title || ''; title.placeholder = '标题';
     var subj = sel([['','学科（必选）']].concat(lists.subjects.map(function(s) { return [s, s]; })), d.subject || '');
@@ -1159,9 +1221,13 @@ function renderDrafts(drafts) {
     var body = mk('textarea'); body.value = d.body || ''; body.placeholder = '正文';
     var del = mk('button'); del.className = 'danger small'; del.textContent = '删这条草稿'; del.type = 'button';
     del.onclick = function() { card.remove(); };
-    card.appendChild(chk); card.appendChild(title); card.appendChild(subj); card.appendChild(kind); card.appendChild(child); card.appendChild(due); card.appendChild(body); card.appendChild(del);
-    card._draft = {chk: chk, title: title, subj: subj, kind: kind, child: child, due: due, body: body};
+    function field(text, input) { var label = mk('label', text); label.appendChild(input); card.appendChild(label); }
+    var checkLabel = mk('label', ' 创建这条草稿'); checkLabel.prepend(chk); card.appendChild(checkLabel);
+    field('标题', title); field('学科（必选）', subj); field('类型', kind); field('给谁', child); field('截止日期', due); field('正文', body);
+    var error = mk('p'); error.className = 'draft-error'; error.setAttribute('role', 'alert'); card.appendChild(error); card.appendChild(del);
+    card._draft = {chk: chk, title: title, subj: subj, kind: kind, child: child, due: due, body: body, error: error};
     box.appendChild(card);
+    if (!d.subject) { error.textContent = '请选择学科后再创建。'; }
   });
   document.getElementById('ai-status').textContent = drafts.length ? ('已生成 ' + drafts.length + ' 条草稿，核对后点批量创建。') : '没有生成草稿。';
 }
@@ -1197,29 +1263,41 @@ document.getElementById('ai-create-btn').onclick = async function() {
   var btn = this; var st = document.getElementById('ai-status');
   var cards = Array.prototype.slice.call(document.querySelectorAll('#ai-drafts .card'));
   var drafts = [];
-  cards.forEach(function(card) { var d = card._draft; if (d && d.chk.checked) drafts.push({title: d.title.value, subject: d.subj.value, kind: d.kind.value, child_id: parseInt(d.child.value, 10) || 0, due: d.due.value, body: d.body.value}); });
+  var selected = cards.filter(function(card) { return card._draft && card._draft.chk.checked; });
+  selected.forEach(function(card) { var d = card._draft; d.error.textContent = ''; card.classList.remove('has-error'); drafts.push({title: d.title.value, subject: d.subj.value, kind: d.kind.value, child_id: parseInt(d.child.value, 10) || 0, due: d.due.value, body: d.body.value}); });
   if (!drafts.length) { st.textContent = '没有勾选的草稿。'; return; }
-  btn.disabled = true; st.textContent = '创建中…';
+  var controls = Array.from(document.querySelectorAll('#ai-entry button, #ai-entry input, #ai-entry select, #ai-entry textarea'));
+  var disabledBefore = controls.map(function(c) { return c.disabled; });
+  controls.forEach(function(c) { c.disabled = true; });
+  var uncertain = false; st.textContent = '创建中…';
   try {
     var r = await fetch('/api/ai-batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({drafts: drafts})});
     var j = await r.json();
-    if (j.ok) { st.textContent = '已创建 ' + j.created.length + ' 条，失败 ' + j.failed.length + ' 条。'; document.getElementById('ai-drafts').innerHTML = ''; }
+    if (j.ok && Array.isArray(j.created) && Array.isArray(j.failed)) {
+      j.created.forEach(function(result) { if (selected[result.index]) selected[result.index].remove(); });
+      j.failed.forEach(function(result) { var card = selected[result.index]; if (card) { card.classList.add('has-error'); card._draft.error.textContent = result.message || result.error || '创建失败，请修改后重试。'; } });
+      st.textContent = '已创建 ' + j.created.length + ' 条，失败 ' + j.failed.length + ' 条。失败及未勾选的草稿已保留。';
+    }
     else st.textContent = '批量创建失败：' + (j.error || r.status);
-  } catch (e) { st.textContent = '批量创建失败：' + e; }
-  btn.disabled = false;
+  } catch (e) { uncertain = true; st.textContent = '创建结果未确认，草稿已保留。请先到本子里检查，避免重复创建；核对后重新打开登记页。'; }
+  controls.forEach(function(c, i) { c.disabled = disabledBefore[i]; });
+  btn.disabled = uncertain;
 };
 """
-    html = ("<div class='card'><h3>AI 录入（文字 / 拍照）</h3>"
+    configured = bool(LLM_API_KEY)
+    model_note = ("文字或照片会发给已配置的模型服务商，可能产生 API 费用。" if configured
+                  else "尚未配置模型，文字 / 拍照识别不可用。可展开下方入口粘贴 JSON，生成草稿后核对。")
+    html = ("<div class='card'><h2>识别 → 核对草稿 → 创建</h2>"
             "<p class='muted'>写一句话或拍一张作业单，AI 先拆成草稿，你逐条核对后再批量创建；草稿确认前不入库。"
-            "没配 LLM 时 AI 解析会提示，改用下面的粘贴 JSON（免费聊天 App 里解析完复制过来也行）。</p>"
-            "<textarea id='ai-text' placeholder='例如：小明明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
-            "<input id='ai-image' type='file' accept='image/*' aria-label='拍照或选图'>"
-            "<button id='ai-parse-btn' type='button'>AI 解析成草稿</button>"
-            "<p id='ai-status' class='muted'></p>"
+            "</p>" + f"<p class='form-note'>{model_note}</p>"
+            "<label class='form-field' for='ai-text'>要识别的文字</label><textarea id='ai-text' placeholder='例如：小明明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
+            "<label class='form-field' for='ai-image'>照片（可选，最大 10MB）</label><input id='ai-image' type='file' accept='image/*' aria-label='拍照或选图'>"
+            f"<button id='ai-parse-btn' type='button' {'disabled' if not configured else ''}>识别成草稿</button>"
+            "<p id='ai-status' class='muted' role='status' aria-live='polite'></p>"
             "<div id='ai-drafts'></div>"
             "<button id='ai-create-btn' type='button'>批量创建已勾选</button>"
             "<details style='margin-top:12px'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>粘贴 AI 结果 JSON（免费路径，点开看）</summary>"
-            "<textarea id='ai-json' placeholder='[{\"title\":\"数学练习册第10页\",\"subject\":\"数学\",\"kind\":\"homework\",\"child_id\":1,\"due\":\"2026-10-28\",\"body\":\"\"}]'></textarea>"
+            "<label class='form-field' for='ai-json'>JSON 草稿数组</label><textarea id='ai-json' placeholder='[{\"title\":\"数学练习册第10页\",\"subject\":\"数学\",\"kind\":\"homework\",\"child_id\":1,\"due\":\"2026-10-28\",\"body\":\"\"}]'></textarea>"
             "<button id='ai-json-btn' type='button'>用粘贴的 JSON 生成草稿</button></details>"
             "<script type='application/json' id='sb-lists'>__LISTS_JSON__</script>"
             "<script>" + js + "</script></div>")
@@ -1259,9 +1337,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         params = parse_qs(u.query)
-        if u.path in ("/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
+        if u.path in ("/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
             ctype = {"json": "application/manifest+json", "js": "application/javascript",
-                     "svg": "image/svg+xml", "png": "image/png"}.get(u.path.rsplit(".", 1)[-1], "image/png")
+                     "svg": "image/svg+xml", "png": "image/png", "mjs": "application/javascript", "css": "text/css"}.get(u.path.rsplit(".", 1)[-1], "image/png")
             try:
                 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), u.path.lstrip("/")), "rb") as f:
                     data = f.read()
@@ -1307,6 +1385,11 @@ class Handler(BaseHTTPRequestHandler):
                             "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" http://HOST:8765/api/items"})
             return
         if u.path == "/api/items":
+            if has_any_api_token():
+                token = self.headers.get("X-API-Token", "") or params.get("token", [""])[0]
+                if not api_token_ok(token):
+                    self.send_json({"ok": False, "error": "unauthorized"}, 401)
+                    return
             try:
                 child = int(params.get("child", ["0"])[0])
             except ValueError:
@@ -1375,9 +1458,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             path = os.path.join(UPLOAD_DIR, name)
             mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-            data = open(path, "rb").read()
-            self.send_response(200)
+            size = os.path.getsize(path)
+            start, end, partial = 0, size - 1, False
+            requested_range = self.headers.get("Range", "")
+            if requested_range:
+                match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested_range)
+                valid = bool(match and any(match.groups()) and size)
+                if valid:
+                    left, right = match.groups()
+                    start = int(left) if left else max(0, size - int(right))
+                    end = min(size - 1, int(right)) if left and right else size - 1
+                    valid = start <= end and start < size and (left or int(right) > 0)
+                if not valid:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                partial = True
+            self.send_response(206 if partial else 200)
             self.send_header("Content-Type", mime)
+            self.send_header("Accept-Ranges", "bytes")
+            if partial:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             if parse_qs(urlparse(self.path).query).get("download"):
                 it = None
                 conn = db()
@@ -1388,9 +1491,20 @@ class Handler(BaseHTTPRequestHandler):
                 if it:
                     self.send_header("Content-Disposition",
                                      "attachment; filename*=UTF-8''" + quote(it))
-            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Length", str(end - start + 1))
             self.end_headers()
-            self.wfile.write(data)
+            with open(path, "rb") as file:
+                file.seek(start)
+                remaining = end - start + 1
+                try:
+                    while remaining > 0:
+                        chunk = file.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # Seeking/closing media cancels the previous browser request.
             return
         self.send_html(error_page("这个页面不存在", "地址可能打错了，回到首页重新找一下。"), 404)
 
@@ -1452,15 +1566,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             subjects, children = get_subjects(), get_children()
             created, failed = [], []
-            for raw_draft in drafts_in:
+            for index, raw_draft in enumerate(drafts_in):
                 d = validate_draft(raw_draft, subjects, children, 0)
                 if not d["subject"]:
-                    failed.append({"draft": d, "error": "subject required"})
+                    failed.append({"index": index, "draft": d, "error": "subject required", "message": "请选择学科"})
                     continue
                 item_id, title = create_item({"title": d["title"], "subject": d["subject"],
                                               "kind": d["kind"], "child_id": str(d["child_id"]),
                                               "due": d["due"], "body": d["body"]}, None, "")
-                created.append({"id": item_id, "title": title})
+                created.append({"index": index, "id": item_id, "title": title})
             self.send_json({"ok": True, "created": created, "failed": failed})
             return
         fields, file_bytes, filename, file_ctype = self.read_form()
