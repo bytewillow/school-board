@@ -49,7 +49,7 @@ token for each setup, and the agent must use them only for that setup.
 
 ## 4. What the token does not allow
 
-- The token allows listing and creating only. It does not allow deleting
+- The token allows listing, reading visible items, and creating only. It does not allow deleting
   items, adding or renaming children, or adding or deleting subjects.
 - Never call an admin page or admin action with the token. Those need the
   admin login, which only the user handles in the browser.
@@ -60,6 +60,9 @@ token for each setup, and the agent must use them only for that setup.
 
 When an AI outside the home network needs to reach the board, expose only
 `/api/lists` and `/api/items` through the reverse proxy, and nothing else.
+Configure an environment or admin-generated API token before exposing these paths;
+`GET /api/items` requires the same token when one is configured. Without a token,
+the API remains trusted-LAN only. The token is not authentication for the web UI.
 Replace `BOARD` with the host prefix the user chooses, and
 `BOARD_BACKEND` with the board's local address. This snippet is a template,
 not a deployed configuration.
