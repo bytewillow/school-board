@@ -747,8 +747,12 @@ def admin_page(msg=""):
     child_rows = ""
     for c in children:
         n = sum(1 for i in items if i.get("child_id") == c["id"])
-        child_rows += (f"<div class='arow'><div class='t'><b>{esc(c['name'])}</b>"
-                       f"<div class='meta'>{n} 条专属 · 删孩子不删内容</div></div>"
+        child_rows += (f"<div class='arow'>"
+                       f"<form class='inline-form' style='flex:1;margin:0' method='post' action='/admin/child/rename'>"
+                       f"<input type='hidden' name='id' value='{c['id']}'>"
+                       f"<input name='name' value='{esc(c['name'])}' aria-label='孩子名字，改了点改名' required>"
+                       f"<span class='meta' style='white-space:nowrap'>{n} 条</span>"
+                       "<button class='small'>改名</button></form>"
                        f"<form method='post' action='/admin/child/delete' style='margin:0'>"
                        f"<input type='hidden' name='id' value='{c['id']}'>"
                        "<button class='danger small'>删除</button></form></div>")
@@ -1032,6 +1036,22 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("DELETE FROM children WHERE id=?", (cid,))
             conn.commit()
             conn.close()
+            self.redirect("/admin")
+            return
+        if u.path == "/admin/child/rename":
+            try:
+                cid = int(fields.get("id", "0"))
+            except ValueError:
+                cid = 0
+            name = (fields.get("name") or "").strip()
+            if cid and name:
+                conn = db()
+                try:
+                    conn.execute("UPDATE children SET name=? WHERE id=?", (name, cid))
+                    conn.commit()
+                except sqlite3.IntegrityError:
+                    pass
+                conn.close()
             self.redirect("/admin")
             return
         if u.path == "/admin/subject":
