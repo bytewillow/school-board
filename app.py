@@ -1032,9 +1032,7 @@ class Handler(BaseHTTPRequestHandler):
                 form = ("<div class='card'><h3>管理登录</h3>"
                         "<form method='post' action='/admin/login'>"
                         "<input type='password' name='password' aria-label='管理密码' placeholder='管理密码' required>"
-                        "<button class='full'>登录</button></form>"
-                        "<p class='muted'>登记不需要密码；删除、加孩子、加学科需要管理密码。"
-                        "原型默认密码 admin123，部署前改 ADMIN_PASSWORD。</p></div>")
+                        "<button class='full'>登录</button></form></div>")
                 self.send_html(page("管理登录", form))
                 return
             self.send_html(admin_page())
