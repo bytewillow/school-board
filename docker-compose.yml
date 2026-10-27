@@ -1,0 +1,15 @@
+services:
+  school-board:
+    build: .
+    container_name: school-board
+    restart: unless-stopped
+    environment:
+      # 部署前在 shell / .env 里设好 ADMIN_PASSWORD，不要直接写进这个文件
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - DATA_DIR=/data
+      - PORT=8765
+    volumes:
+      - ./data:/data
+    ports:
+      # 只建议局域网 / Tailscale 访问，不要直接公网暴露
+      - "127.0.0.1:8765:8765"
