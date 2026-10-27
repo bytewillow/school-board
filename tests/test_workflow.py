@@ -54,6 +54,50 @@ class BoardTests(unittest.TestCase):
                 conn.execute('UPDATE items SET done=1 WHERE id=?', (item_id,))
         return item_id
 
+    def test_static_media_allowlist(self):
+        for path, mime in [('/static/media.js', 'application/javascript'),
+                           ('/static/media.css', 'text/css'),
+                           ('/static/pdfjs/pdf.mjs', 'application/javascript'),
+                           ('/static/pdfjs/pdf.worker.mjs', 'application/javascript')]:
+            conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+            conn.request('GET', path)
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader('Content-Type'), mime)
+            self.assertGreater(len(response.read()), 100)
+            conn.close()
+        self.assertEqual(self.request('/static/../app.py')[0], 404)
+
+    def test_media_byte_ranges(self):
+        item_id, _ = app.create_item({'subject': '英语', 'child_id': '1'}, b'0123456789', 'test.wav', 'audio/wav')
+        url = '/uploads/' + app.get_item(item_id)['stored']
+        for value, status, content, content_range in [('bytes=2-5', 206, b'2345', 'bytes 2-5/10'),
+                                                    ('bytes=7-', 206, b'789', 'bytes 7-9/10'),
+                                                    ('bytes=-3', 206, b'789', 'bytes 7-9/10'),
+                                                    ('bytes=20-', 416, b'', 'bytes */10'),
+                                                    ('bytes=9-2', 416, b'', 'bytes */10'),
+                                                    ('bytes=0-1,4-5', 416, b'', 'bytes */10')]:
+            conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+            conn.request('GET', url, headers={'Range': value})
+            response = conn.getresponse()
+            self.assertEqual(response.status, status)
+            self.assertEqual(response.getheader('Content-Range'), content_range)
+            self.assertEqual(response.read(), content)
+            conn.close()
+
+    def test_image_gallery_keeps_child_subject_visibility(self):
+        for title, child, subject, visible in [('first', 1, '英语', ''), ('shared', 0, '英语', ''),
+                                               ('other child', 2, '英语', ''), ('other subject', 1, '数学', ''),
+                                               ('hidden', 1, '英语', '2999-01-01T00:00')]:
+            app.create_item({'title': title, 'child_id': str(child), 'subject': subject, 'visible_at': visible}, b'image', title + '.png', 'image/png')
+        first = next(i for i in app.all_items() if i['title'] == 'first')
+        _, body = self.request('/item?id=' + str(first['id']) + '&child=1')
+        import html, re
+        gallery = json.loads(html.unescape(re.search(r"data-gallery='([^']+)'", body).group(1)))
+        self.assertEqual([i['title'] for i in gallery], ['first', 'shared'])
+        self.assertIn("href='/uploads/", body)
+        self.assertNotIn("autoplay", body)
+
     def test_covers_count_shared_and_exclude_hidden(self):
         self.item('自己的')
         self.item('共同的', child=0)
@@ -80,7 +124,7 @@ class BoardTests(unittest.TestCase):
         self.assertEqual((item['child_id'], item['filename'], item['title']), (2, '练习.pdf', '练习'))
         status, body = self.request('/item?id=' + str(item['id']) + '&child=2')
         self.assertEqual(status, 200)
-        self.assertIn("type='application/pdf'", body)
+        self.assertIn("data-type='pdf'", body)
         shared_id = self.item(title='共享说明', child=0)
         _, body = self.request('/item?id=' + str(shared_id) + '&child=1')
         self.assertIn('完成状态会同步到所有本子', body)

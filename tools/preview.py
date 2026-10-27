@@ -32,6 +32,14 @@ def seed():
                          'pinned': '1' if kind == 'announcement' else '',
                          'body': '这是用于界面预览的虚构示例，不是真实学生资料。'}, None, '')
 
+    fixtures = Path(__file__).parent / 'fixtures'
+    for title, file, mime in [('虚构示例 · 图形一', 'image-1.png', 'image/png'),
+                              ('虚构示例 · 图形二', 'image-2.png', 'image/png'),
+                              ('虚构示例 · 阅读练习', 'reading.pdf', 'application/pdf'),
+                              ('虚构示例 · 12 秒试听音（非真实听力）', 'sample.wav', 'audio/wav')]:
+        app.create_item({'title': title, 'subject': '英语', 'kind': 'material' if file != 'sample.wav' else 'listening', 'child_id': '1',
+                         'body': '这是用于附件功能验证的虚构文件，不是真实学生资料。'}, (fixtures / file).read_bytes(), file, mime)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

@@ -437,24 +437,6 @@ button.full{width:100%}.muted{color:#777;font-size:14px}
 .progress{height:10px;background:#eee;border-radius:999px;overflow:hidden;margin:10px 0}
 .progress i{display:block;height:100%;background:#7fb069;border-radius:999px}
 audio,embed,img{max-width:100%}audio{width:100%}
-.player{background:#eef2f8;border-radius:18px;padding:16px;margin:8px 0}
-.player-top{display:flex;gap:16px;align-items:center}
-.playbtn{width:64px;height:64px;min-height:64px;border-radius:50%;background:#2f66c4;color:#fff;font-size:26px;padding:0;flex:none}
-.playbtn:focus-visible{outline:3px solid #2f66c4;outline-offset:2px}
-.player-main{flex:1;min-width:0}
-.player-times{display:flex;justify-content:space-between;font-size:15px;font-variant-numeric:tabular-nums;color:#333;margin-bottom:8px}
-.seek{width:100%;height:12px;accent-color:#2f66c4;margin:0}
-.player-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-.player-row button{min-height:48px;font-size:15px;padding:0 16px}
-.skipbtn{background:#fff;color:#2f66c4;border:1px solid #c9d6ea}
-.speeds{display:flex;gap:6px;flex-wrap:wrap}
-.speeds button{min-height:44px;padding:0 12px;background:#fff;color:#333;border:1px solid #ddd}
-.speeds button.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
-.loopbtn{background:#fff;color:#333;border:1px solid #ddd}
-.loopbtn.on{background:#2e7d32;color:#fff;border-color:#2e7d32}
-.abbtn{background:#fff;color:#333;border:1px solid #ddd}
-.abbtn.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
-.abinfo{font-size:14px;color:#555}
 .back{display:inline-flex;min-height:48px;align-items:center;padding:0 18px;background:#fff;
 border:1px solid #ddd;border-radius:999px;font-size:16px}
 input[type=radio]{width:auto;accent-color:#2f66c4}
@@ -535,6 +517,7 @@ def page(title, body):
     return ("<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{esc(title)}</title><style>{CSS}</style>"
+            "<link rel='stylesheet' href='/static/media.css'><script src='/static/media.js' defer></script>"
             "<link rel='manifest' href='/manifest.json'>"
             "<link rel='icon' type='image/png' sizes='192x192' href='/icon-192.png'>"
             "<link rel='apple-touch-icon' href='/apple-touch-icon.png'>"
@@ -618,68 +601,37 @@ def item_card(it, children, detail=False, child=0):
     if it["stored"]:
         url = "/uploads/" + quote(it["stored"])
         mime = it["mime"] or ""
-        if mime.startswith("image/"):
-            out += f"<p><img src='{url}' alt='{esc(it['filename'])}'></p>"
+        if mime.startswith("image/") or mime == "application/pdf" or it["filename"].lower().endswith(".pdf"):
+            gallery_child = it.get("child_id", 0) or child
+            gallery = visible_items(all_items())
+            gallery = filter_child(gallery, gallery_child) if gallery_child else [x for x in gallery if not x.get("child_id")]
+            gallery = [x for x in gallery if x["subject"] == it["subject"] and x["stored"] and (x["mime"] or "").startswith("image/")]
+            images = [{"url": "/uploads/" + quote(x["stored"]), "title": x["title"], "name": x["filename"]} for x in sorted(gallery, key=lambda x: x["id"])]
+            if mime.startswith("image/"):
+                if not any(x["url"] == url for x in images):
+                    images.insert(0, {"url": url, "title": it["title"], "name": it["filename"]})
+                out += (f"<a class='media-open image-open' href='{url}' data-type='image' data-gallery='{esc(json.dumps(images, ensure_ascii=False))}' data-url='{url}' data-title='{esc(it['title'])}'>"
+                        f"<img src='{url}' alt='{esc(it['filename'])}'><span>全屏看图 · 同本同科图片可左右翻动</span></a>")
+            else:
+                out += (f"<div class='document-cover'><p>PDF · {esc(it['filename'])}</p>"
+                        f"<a class='btn media-open' href='{url}' data-type='pdf' data-url='{url}' data-title='{esc(it['title'])}'>全屏阅读 PDF</a>"
+                        "<p class='muted'>逐页翻动、跳页与缩放；无法显示时可打开原文件。</p></div>")
+            out += f"<p><a href='{url}' target='_blank' rel='noopener'>打开原文件 ↗</a></p>"
         elif mime.startswith("audio/"):
-            aid = f"au-{it['id']}"
-            out += (f"<div class='player' id='pl-{aid}'>"
-                    f"<audio id='{aid}' src='{url}' preload='metadata'></audio>"
-                    "<div class='player-top'>"
-                    f"<button class='playbtn' aria-label='播放或暂停'>▶</button>"
-                    "<div class='player-main'>"
-                    "<div class='player-times'><span class='cur'>00:00</span><span class='dur'>--:--</span></div>"
-                    "<input class='seek' type='range' min='0' max='1000' value='0' aria-label='播放进度'>"
-                    "</div></div>"
-                    "<div class='player-row'>"
-                    "<button class='skipbtn' data-skip='-15'>⏪ 15秒</button>"
-                    "<button class='skipbtn' data-skip='15'>15秒 ⏩</button>"
-                    "<span class='speeds'>"
-                    "<button data-rate='0.75'>0.75×</button>"
-                    "<button data-rate='1' class='on'>1×</button>"
-                    "<button data-rate='1.25'>1.25×</button>"
-                    "<button data-rate='1.5'>1.5×</button>"
-                    "<button data-rate='2'>2×</button></span>"
-                    "<button class='loopbtn'>🔁 循环：关</button>"
-                    "<button class='abbtn ab-a'>设 A 点</button>"
-                    "<button class='abbtn ab-b'>设 B 点</button>"
-                    "<button class='abbtn ab-clear'>清除 AB</button>"
-                    "<span class='abinfo'></span></div></div>"
-                    f"<script>(function(){{var box=document.getElementById('pl-{aid}');"
-                    f"var a=document.getElementById('{aid}');"
-                    "var play=box.querySelector('.playbtn'),seek=box.querySelector('.seek'),"
-                    "cur=box.querySelector('.cur'),dur=box.querySelector('.dur'),"
-                    "loop=box.querySelector('.loopbtn'),info=box.querySelector('.abinfo');"
-                    "var abA=null,abB=null,drag=false;"
-                    "function fmt(s){if(!isFinite(s))return '--:--';s=Math.floor(s);"
-                    "return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}"
-                    "function abText(){info.textContent=(abA===null&&abB===null)?'':"
-                    "'AB：'+(abA===null?'?':fmt(abA))+' – '+(abB===null?'?':fmt(abB))}"
-                    "play.onclick=function(){if(a.paused){a.play()}else{a.pause()}};"
-                    "a.onplay=function(){play.textContent='⏸'};"
-                    "a.onpause=function(){play.textContent='▶'};"
-                    "a.onloadedmetadata=function(){dur.textContent=fmt(a.duration)};"
-                    "a.ontimeupdate=function(){if(abA!==null&&abB!==null&&a.currentTime>=abB){a.currentTime=abA}"
-                    "if(!drag&&a.duration){seek.value=Math.round(a.currentTime/a.duration*1000)}"
-                    "cur.textContent=fmt(a.currentTime)};"
-                    "a.onended=function(){if(!a.loop){play.textContent='▶'}};"
-                    "seek.addEventListener('input',function(){drag=true;"
-                    "if(a.duration){a.currentTime=seek.value/1000*a.duration;cur.textContent=fmt(a.currentTime)}});"
-                    "seek.addEventListener('change',function(){drag=false});"
-                    "box.querySelectorAll('.skipbtn').forEach(function(b){b.onclick=function(){"
-                    "a.currentTime=Math.max(0,Math.min(a.duration||0,a.currentTime+parseFloat(b.dataset.skip)))}});"
-                    "box.querySelectorAll('.speeds button').forEach(function(b){b.onclick=function(){"
-                    "a.playbackRate=parseFloat(b.dataset.rate);"
-                    "box.querySelectorAll('.speeds button').forEach(function(x){x.classList.remove('on')});"
-                    "b.classList.add('on')}});"
-                    "loop.onclick=function(){a.loop=!a.loop;loop.classList.toggle('on',a.loop);"
-                    "loop.textContent=a.loop?'🔁 循环：单曲':'🔁 循环：关'};"
-                    "box.querySelector('.ab-a').onclick=function(){abA=a.currentTime;abText()};"
-                    "box.querySelector('.ab-b').onclick=function(){abB=a.currentTime;"
-                    "if(abA!==null&&abB<=abA){var t=abA;abA=abB;abB=t}abText()};"
-                    "box.querySelector('.ab-clear').onclick=function(){abA=null;abB=null;abText()};"
-                    "})();</script>")
-        elif mime == "application/pdf" or it["filename"].lower().endswith(".pdf"):
-            out += f"<p><embed src='{url}' type='application/pdf' width='100%' height='600'></p>"
+            out += (f"<section class='listening-player' data-title='{esc(it['title'])}' aria-label='听力播放器'>"
+                    f"<p class='audio-title'>{esc(it['filename'])}</p><audio controls src='{url}' preload='metadata'></audio>"
+                    "<div class='audio-enhanced' hidden><div class='audio-primary'>"
+                    "<button class='audio-play' type='button' aria-label='播放'>播放</button>"
+                    "<div class='audio-timeline'><div class='audio-times'><span class='audio-current'>00:00</span><span class='audio-duration'>--:--</span></div>"
+                    "<input class='audio-seek' type='range' min='0' max='1000' value='0' aria-label='播放进度' disabled></div></div>"
+                    "<div class='audio-tools'><button type='button' data-skip='-10'>后退 10 秒</button><button type='button' data-skip='10'>前进 10 秒</button>"
+                    "<label>速度 <select class='audio-rate' aria-label='播放速度'><option value='0.75'>0.75×</option><option value='1' selected>1×</option><option value='1.25'>1.25×</option><option value='1.5'>1.5×</option><option value='2'>2×</option></select></label></div>"
+                    "<details class='audio-practice'><summary>跟读练习 · 循环与 AB 复读</summary><div class='audio-tools'>"
+                    "<button type='button' class='audio-loop' aria-pressed='false'>整段循环：关</button><button type='button' class='audio-a'>设起点 A</button>"
+                    "<button type='button' class='audio-b'>设终点 B</button><button type='button' class='audio-clear'>清除 AB</button></div>"
+                    "<p class='audio-ab muted'>先设起点，再播放到终点设置 B；不改变原文件。</p></details>"
+                    "<button type='button' class='audio-native ghost small'>使用浏览器播放器</button></div>"
+                    "<p class='audio-status muted' role='status' aria-live='polite'>加载音频信息…</p></section>")
         out += f"<p><a href='{url}?download=1'>⬇ 下载：{esc(it['filename'])}</a></p>"
     if it["kind"] == "homework":
         label = "↩ 取消完成" if it["done"] else "✅ 标为已完成"
@@ -1383,9 +1335,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         params = parse_qs(u.query)
-        if u.path in ("/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
+        if u.path in ("/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
             ctype = {"json": "application/manifest+json", "js": "application/javascript",
-                     "svg": "image/svg+xml", "png": "image/png"}.get(u.path.rsplit(".", 1)[-1], "image/png")
+                     "svg": "image/svg+xml", "png": "image/png", "mjs": "application/javascript", "css": "text/css"}.get(u.path.rsplit(".", 1)[-1], "image/png")
             try:
                 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), u.path.lstrip("/")), "rb") as f:
                     data = f.read()
@@ -1504,9 +1456,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             path = os.path.join(UPLOAD_DIR, name)
             mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-            data = open(path, "rb").read()
-            self.send_response(200)
+            size = os.path.getsize(path)
+            start, end, partial = 0, size - 1, False
+            requested_range = self.headers.get("Range", "")
+            if requested_range:
+                match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested_range)
+                valid = bool(match and any(match.groups()) and size)
+                if valid:
+                    left, right = match.groups()
+                    start = int(left) if left else max(0, size - int(right))
+                    end = min(size - 1, int(right)) if left and right else size - 1
+                    valid = start <= end and start < size and (left or int(right) > 0)
+                if not valid:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                partial = True
+            self.send_response(206 if partial else 200)
             self.send_header("Content-Type", mime)
+            self.send_header("Accept-Ranges", "bytes")
+            if partial:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
             if parse_qs(urlparse(self.path).query).get("download"):
                 it = None
                 conn = db()
@@ -1517,9 +1489,20 @@ class Handler(BaseHTTPRequestHandler):
                 if it:
                     self.send_header("Content-Disposition",
                                      "attachment; filename*=UTF-8''" + quote(it))
-            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Length", str(end - start + 1))
             self.end_headers()
-            self.wfile.write(data)
+            with open(path, "rb") as file:
+                file.seek(start)
+                remaining = end - start + 1
+                try:
+                    while remaining > 0:
+                        chunk = file.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # Seeking/closing media cancels the previous browser request.
             return
         self.send_html(error_page("这个页面不存在", "地址可能打错了，回到首页重新找一下。"), 404)
 
