@@ -523,7 +523,7 @@ def page(title, body):
             "<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(function(){});}"
             "document.querySelectorAll('form').forEach(function(f){"
             "f.addEventListener('submit',function(){var b=f.querySelector('button');"
-            "if(b&&!b.disabled){b.disabled=true;b.dataset.t=b.textContent;b.textContent='处理中…';}});});</script>"
+            "if(b&&!b.disabled){setTimeout(function(){b.disabled=true;b.textContent='处理中…';},0);}});});</script>"
             "</body></html>").encode()
 
 
@@ -916,7 +916,7 @@ def admin_children_page():
                        f"<input type='hidden' name='id' value='{c['id']}'>"
                        f"<input name='name' value='{esc(c['name'])}' aria-label='孩子名字，改了点改名' required>"
                        f"<span class='meta' style='white-space:nowrap'>{n} 条</span>"
-                       "<button class='small'>改名</button></form>"
+                       "<button type='submit' class='small'>改名</button></form>"
                        f"<form method='post' action='/admin/child/delete' style='margin:0'>"
                        f"<input type='hidden' name='id' value='{c['id']}'>"
                        "<button class='danger small'>删除</button></form></div>")
@@ -1580,8 +1580,13 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("UPDATE children SET name=? WHERE id=?", (name, cid))
                     conn.commit()
                 except sqlite3.IntegrityError:
+                    # 重名：静默保留旧名，不报错、不卡住。
                     pass
-                conn.close()
+                except sqlite3.OperationalError:
+                    self.send_html(error_page("改名失败", "数据库正忙，请等一下再点一次改名。"))
+                    return
+                finally:
+                    conn.close()
             self.redirect("/admin/children")
             return
         if u.path == "/admin/subject":
