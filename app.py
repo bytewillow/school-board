@@ -282,11 +282,20 @@ def create_item(fields, file_bytes, filename):
         with open(os.path.join(UPLOAD_DIR, stored), "wb") as f:
             f.write(file_bytes)
         mime = mimetypes.guess_type(original)[0] or ""
+    kind = (fields.get("kind") or "").strip()
+    if not kind:
+        ext = os.path.splitext(original)[1].lower()
+        if mime.startswith("audio/") or ext in (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"):
+            kind = "listening"
+        elif mime == "application/pdf" or ext == ".pdf":
+            kind = "material"
+        else:
+            kind = "notice"
     conn = db()
     cur = conn.execute(
         "INSERT INTO items (title,subject,kind,body,link_url,filename,stored,mime,"
         "created,due,visible_at,pinned,child_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (title, subject, fields.get("kind", "notice") or "notice",
+        (title, subject, kind,
          fields.get("body", ""), safe_link(fields.get("link_url", "")),
          original, stored, mime, now_dt(), fields.get("due", ""),
          fields.get("visible_at", ""), 1 if fields.get("pinned") else 0, child_id))
@@ -699,14 +708,19 @@ def register_page(msg="", preselect_subject="", preselect_child=0):
     subjects, children = get_subjects(), get_children()
     api_help = """<details class='card'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>curl / iPhone 捷径上传（点开看）</summary>
 <p class='muted'>下面把 HOST 换成这台服务器的地址，例如 HOST:8765（换成你这台服务器的地址）。</p>
-<pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'># 传一个文件，标题不填就用文件名
-curl -F "file=@/path/数学练习.pdf" -F "subject=数学" -F "kind=homework" http://HOST/api/items
+<pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'># 取孩子和学科列表（给捷径做下拉）：GET http://HOST/api/lists
+# 返回 {"children": [{"id": 0, "name": "全部"}, ...], "subjects": ["语文", ...]}
+# 传一个文件，标题不填就用文件名；kind 不填时音频自动是听力、PDF 自动是学习资料
+curl -F "file=@/path/数学练习.pdf" -F "subject=数学" http://HOST/api/items
 
 # 只传文字 / 链接
 curl -d "title=本周通知&subject=语文&body=周五听写" http://HOST/api/items</pre>
 <p>iPhone 捷径做法：分享菜单 → 新建捷径 → 接收“文件/图像/PDF”→
-“获取 URL 内容”选 POST、表单，地址填 http://HOST/api/items，
-表单里 file=捷径输入、subject=问一下（或固定一门）、kind=homework；
+先“获取 URL 内容” GET http://HOST/api/lists，取字典里的 subjects 和 children
+各做一个“从列表中选取”（孩子选 id、学科选名字），再“获取 URL 内容”选 POST、
+表单，地址填 http://HOST/api/items，表单里 file=捷径输入、subject=上一步选的学科、
+child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是听力、PDF 自动是学习资料，
+想指定类型时再填 kind（notice/homework/material/answer/listening/announcement）；
 再把这个捷径加到分享菜单，以后在微信里长按文件 → 分享 → 这个捷径，
 一步就登记进来了，不用先存文件再打开网页。手机须和服务器在同一局域网，
 或都连着 Tailscale。</p>
@@ -843,10 +857,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(register_page("", params.get("subject", [""])[0],
                                          int(params.get("child", ["0"])[0] or 0) if params.get("child", ["0"])[0].isdigit() else 0))
             return
+        if u.path == "/api/lists":
+            self.send_json({"ok": True,
+                            "children": [{"id": 0, "name": "全部"}] + [{"id": c["id"], "name": c["name"]} for c in get_children()],
+                            "subjects": get_subjects()})
+            return
         if u.path == "/api":
             self.send_json({"ok": True, "post": "/api/items",
-                            "fields": "title(可选，不填用文件名), subject, subject_new, kind, body, link_url, due, visible_at, pinned, child_id",
-                            "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" -F \"kind=homework\" http://HOST:8765/api/items"})
+                            "lists": "/api/lists",
+                            "fields": "title(可选，不填用文件名), subject, subject_new, kind(不填时：音频->听力，PDF->学习资料，其余->通知), body, link_url, due, visible_at, pinned, child_id",
+                            "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" http://HOST:8765/api/items"})
             return
         if u.path == "/api/items":
             try:
