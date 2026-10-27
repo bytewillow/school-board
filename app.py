@@ -522,8 +522,10 @@ def page(title, body):
             "<a href='/admin'><span>⚙️</span>管理</a></nav>"
             "<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(function(){});}"
             "document.querySelectorAll('form').forEach(function(f){"
-            "f.addEventListener('submit',function(){var b=f.querySelector('button');"
-            "if(b&&!b.disabled){setTimeout(function(){b.disabled=true;b.textContent='处理中…';},0);}});});</script>"
+            "f.addEventListener('submit',function(e){"
+            "if(f.dataset.submitting){e.preventDefault();return;}"
+            "f.dataset.submitting='1';var b=f.querySelector('button');"
+            "if(b){b.textContent='处理中…';}});});</script>"
             "</body></html>").encode()
 
 
