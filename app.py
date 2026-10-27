@@ -230,7 +230,7 @@ def parse_multipart(handler, length, ctype):
         return {}, None, None
     boundary = b"--" + m.group(1).strip().strip('"').encode()
     body = handler.rfile.read(length)
-    fields, file_bytes, filename = {}, None, ""
+    fields, file_bytes, filename, file_ctype = {}, None, "", ""
     for part in body.split(boundary):
         if b"\r\n\r\n" not in part:
             continue
@@ -246,9 +246,12 @@ def parse_multipart(handler, length, ctype):
         fn = decode_filename(head)
         if fn:
             file_bytes, filename = content, fn
+            cm = re.search(br"Content-Type:\s*([^\r;]+)", head, re.I)
+            if cm:
+                file_ctype = cm.group(1).decode("utf-8", "replace").strip().lower()
         else:
             fields[name] = content.decode("utf-8", "replace")
-    return fields, file_bytes, filename
+    return fields, file_bytes, filename, file_ctype
 
 
 def original_filename(name):
@@ -263,9 +266,62 @@ def stored_name(original):
     return secrets.token_hex(8) + ext
 
 
-def create_item(fields, file_bytes, filename):
+MIME_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+            "image/webp": ".webp", "image/heic": ".heic", "image/heif": ".heif",
+            "image/bmp": ".bmp", "audio/mpeg": ".mp3", "audio/mp4": ".m4a",
+            "audio/x-m4a": ".m4a", "audio/wav": ".wav", "audio/ogg": ".ogg",
+            "audio/flac": ".flac", "video/mp4": ".mp4", "application/pdf": ".pdf"}
+
+
+def sniff_mime(data):
+    """按文件头猜类型：微信图片常没正经扩展名，文件名靠不住时用这个兜底。"""
+    if not data:
+        return ""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    if data.startswith(b"GIF8"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if len(data) >= 12 and data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"hevc", b"hevx"):
+        return "image/heic"
+    if data.startswith(b"%PDF"):
+        return "application/pdf"
+    if data.startswith(b"ID3") or data[:2] == b"\xff\xfb":
+        return "audio/mpeg"
+    return ""
+
+
+def normalize_upload(original, file_bytes, part_ctype):
+    """返回 (显示文件名, 存盘扩展名, mime)。
+    微信分享的图片常叫 490.pic_hd、xxx.pic 这类“奇葩名”：扩展名是假的，
+    真类型在 multipart 的 Content-Type 里，或者看文件头；这时按真类型改扩展名，
+    否则页里认不出是图片，只能当下载链接。已有正经扩展名的原样不动。"""
+    stem, ext = os.path.splitext(original)
+    ext = ext.lower()
+    guessed = mimetypes.guess_type(original)[0] or ""
+    weird = bool(re.match(r"\.pic(_hd|_th|_mid|_sm)?$", ext)) or not ext or not guessed
+    mime = ""
+    if weird:
+        raw = (part_ctype or "").split(";")[0].strip()
+        # application/octet-stream 是“不知道”，不能挡住文件头嗅探
+        mime = raw if raw in MIME_EXT else sniff_mime(file_bytes or b"")
+        if mime in MIME_EXT:
+            return stem + MIME_EXT[mime], MIME_EXT[mime], mime
+        # 既没类型又嗅不出来：至少把 .pic 后缀去掉，别留着误导人
+        if re.match(r"\.pic(_hd|_th|_mid|_sm)?$", ext):
+            return stem, "", ""
+        return original, ext, guessed
+    return original, ext, guessed
+
+
+def create_item(fields, file_bytes, filename, file_ctype=""):
     """标题不填就用文件名（去掉扩展名）；没文件也没标题就用正文开头或“未命名”。"""
     original = original_filename(filename)
+    if file_bytes:
+        original, _norm_ext, _norm_mime = normalize_upload(original, file_bytes, file_ctype or "")
     stem = os.path.splitext(original)[0].strip()
     title = (fields.get("title") or "").strip()
     if not title:
@@ -278,10 +334,12 @@ def create_item(fields, file_bytes, filename):
         child_id = 0
     stored, mime = "", ""
     if file_bytes:
-        stored = stored_name(original)
+        _disp, norm_ext, norm_mime = normalize_upload(original, file_bytes, file_ctype or "")
+        original = _disp
+        stored = secrets.token_hex(8) + norm_ext
         with open(os.path.join(UPLOAD_DIR, stored), "wb") as f:
             f.write(file_bytes)
-        mime = mimetypes.guess_type(original)[0] or ""
+        mime = norm_mime or mimetypes.guess_type(original)[0] or ""
     kind = (fields.get("kind") or "").strip()
     if not kind:
         ext = os.path.splitext(original)[1].lower()
@@ -364,6 +422,24 @@ button.full{width:100%}.muted{color:#777;font-size:14px}
 .progress{height:10px;background:#eee;border-radius:999px;overflow:hidden;margin:10px 0}
 .progress i{display:block;height:100%;background:#7fb069;border-radius:999px}
 audio,embed,img{max-width:100%}audio{width:100%}
+.player{background:#eef2f8;border-radius:18px;padding:16px;margin:8px 0}
+.player-top{display:flex;gap:16px;align-items:center}
+.playbtn{width:64px;height:64px;min-height:64px;border-radius:50%;background:#2f66c4;color:#fff;font-size:26px;padding:0;flex:none}
+.playbtn:focus-visible{outline:3px solid #2f66c4;outline-offset:2px}
+.player-main{flex:1;min-width:0}
+.player-times{display:flex;justify-content:space-between;font-size:15px;font-variant-numeric:tabular-nums;color:#333;margin-bottom:8px}
+.seek{width:100%;height:12px;accent-color:#2f66c4;margin:0}
+.player-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.player-row button{min-height:48px;font-size:15px;padding:0 16px}
+.skipbtn{background:#fff;color:#2f66c4;border:1px solid #c9d6ea}
+.speeds{display:flex;gap:6px;flex-wrap:wrap}
+.speeds button{min-height:44px;padding:0 12px;background:#fff;color:#333;border:1px solid #ddd}
+.speeds button.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
+.loopbtn{background:#fff;color:#333;border:1px solid #ddd}
+.loopbtn.on{background:#2e7d32;color:#fff;border-color:#2e7d32}
+.abbtn{background:#fff;color:#333;border:1px solid #ddd}
+.abbtn.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
+.abinfo{font-size:14px;color:#555}
 .back{display:inline-flex;min-height:48px;align-items:center;padding:0 18px;background:#fff;
 border:1px solid #ddd;border-radius:999px;font-size:16px}
 input[type=radio]{width:auto;accent-color:#2f66c4}
@@ -496,12 +572,63 @@ def item_card(it, children, detail=False, child=0):
         if mime.startswith("image/"):
             out += f"<p><img src='{url}' alt='{esc(it['filename'])}'></p>"
         elif mime.startswith("audio/"):
-            out += (f"<p><audio controls src='{url}' id='au'></audio><br>"
-                    "速度：<select onchange=\"document.getElementById('au').playbackRate=this.value\">"
-                    "<option value='0.75'>0.75×</option><option value='1' selected>1×</option>"
-                    "<option value='1.25'>1.25×</option></select> "
-                    "<label><input type='checkbox' style='width:auto' "
-                    "onchange=\"document.getElementById('au').loop=this.checked\"> 循环播放</label></p>")
+            aid = f"au-{it['id']}"
+            out += (f"<div class='player' id='pl-{aid}'>"
+                    f"<audio id='{aid}' src='{url}' preload='metadata'></audio>"
+                    "<div class='player-top'>"
+                    f"<button class='playbtn' aria-label='播放或暂停'>▶</button>"
+                    "<div class='player-main'>"
+                    "<div class='player-times'><span class='cur'>00:00</span><span class='dur'>--:--</span></div>"
+                    "<input class='seek' type='range' min='0' max='1000' value='0' aria-label='播放进度'>"
+                    "</div></div>"
+                    "<div class='player-row'>"
+                    "<button class='skipbtn' data-skip='-15'>⏪ 15秒</button>"
+                    "<button class='skipbtn' data-skip='15'>15秒 ⏩</button>"
+                    "<span class='speeds'>"
+                    "<button data-rate='0.75'>0.75×</button>"
+                    "<button data-rate='1' class='on'>1×</button>"
+                    "<button data-rate='1.25'>1.25×</button>"
+                    "<button data-rate='1.5'>1.5×</button>"
+                    "<button data-rate='2'>2×</button></span>"
+                    "<button class='loopbtn'>🔁 循环：关</button>"
+                    "<button class='abbtn ab-a'>设 A 点</button>"
+                    "<button class='abbtn ab-b'>设 B 点</button>"
+                    "<button class='abbtn ab-clear'>清除 AB</button>"
+                    "<span class='abinfo'></span></div></div>"
+                    f"<script>(function(){{var box=document.getElementById('pl-{aid}');"
+                    f"var a=document.getElementById('{aid}');"
+                    "var play=box.querySelector('.playbtn'),seek=box.querySelector('.seek'),"
+                    "cur=box.querySelector('.cur'),dur=box.querySelector('.dur'),"
+                    "loop=box.querySelector('.loopbtn'),info=box.querySelector('.abinfo');"
+                    "var abA=null,abB=null,drag=false;"
+                    "function fmt(s){if(!isFinite(s))return '--:--';s=Math.floor(s);"
+                    "return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}"
+                    "function abText(){info.textContent=(abA===null&&abB===null)?'':"
+                    "'AB：'+(abA===null?'?':fmt(abA))+' – '+(abB===null?'?':fmt(abB))}"
+                    "play.onclick=function(){if(a.paused){a.play()}else{a.pause()}};"
+                    "a.onplay=function(){play.textContent='⏸'};"
+                    "a.onpause=function(){play.textContent='▶'};"
+                    "a.onloadedmetadata=function(){dur.textContent=fmt(a.duration)};"
+                    "a.ontimeupdate=function(){if(abA!==null&&abB!==null&&a.currentTime>=abB){a.currentTime=abA}"
+                    "if(!drag&&a.duration){seek.value=Math.round(a.currentTime/a.duration*1000)}"
+                    "cur.textContent=fmt(a.currentTime)};"
+                    "a.onended=function(){if(!a.loop){play.textContent='▶'}};"
+                    "seek.addEventListener('input',function(){drag=true;"
+                    "if(a.duration){a.currentTime=seek.value/1000*a.duration;cur.textContent=fmt(a.currentTime)}});"
+                    "seek.addEventListener('change',function(){drag=false});"
+                    "box.querySelectorAll('.skipbtn').forEach(function(b){b.onclick=function(){"
+                    "a.currentTime=Math.max(0,Math.min(a.duration||0,a.currentTime+parseFloat(b.dataset.skip)))}});"
+                    "box.querySelectorAll('.speeds button').forEach(function(b){b.onclick=function(){"
+                    "a.playbackRate=parseFloat(b.dataset.rate);"
+                    "box.querySelectorAll('.speeds button').forEach(function(x){x.classList.remove('on')});"
+                    "b.classList.add('on')}});"
+                    "loop.onclick=function(){a.loop=!a.loop;loop.classList.toggle('on',a.loop);"
+                    "loop.textContent=a.loop?'🔁 循环：单曲':'🔁 循环：关'};"
+                    "box.querySelector('.ab-a').onclick=function(){abA=a.currentTime;abText()};"
+                    "box.querySelector('.ab-b').onclick=function(){abB=a.currentTime;"
+                    "if(abA!==null&&abB<=abA){var t=abA;abA=abB;abB=t}abText()};"
+                    "box.querySelector('.ab-clear').onclick=function(){abA=null;abB=null;abText()};"
+                    "})();</script>")
         elif mime == "application/pdf" or it["filename"].lower().endswith(".pdf"):
             out += f"<p><embed src='{url}' type='application/pdf' width='100%' height='600'></p>"
         out += f"<p><a href='{url}?download=1'>⬇ 下载：{esc(it['filename'])}</a></p>"
@@ -941,21 +1068,21 @@ class Handler(BaseHTTPRequestHandler):
     def read_form(self):
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length > MAX_FILE_BYTES + 1024 * 1024:
-            return {}, None, None
+            return {}, None, None, ""
         ctype = self.headers.get("Content-Type", "")
         if ctype.startswith("multipart/form-data"):
             return parse_multipart(self, length, ctype)
         if ctype.startswith("application/json"):
             try:
                 obj = json.loads(self.rfile.read(length).decode("utf-8"))
-                return {k: str(v) for k, v in obj.items()}, None, None
+                return {k: str(v) for k, v in obj.items()}, None, None, ""
             except Exception:
-                return {}, None, None
+                return {}, None, None, ""
         return parse_urlencoded(self, length)
 
     def do_add(self, redirect_to):
-        fields, file_bytes, filename = self.read_form()
-        item_id, title = create_item(fields, file_bytes, filename)
+        fields, file_bytes, filename, file_ctype = self.read_form()
+        item_id, title = create_item(fields, file_bytes, filename, file_ctype)
         if redirect_to == "api":
             return item_id, title
         self.redirect(redirect_to)
@@ -980,11 +1107,11 @@ class Handler(BaseHTTPRequestHandler):
                 if token != API_TOKEN:
                     self.send_json({"ok": False, "error": "unauthorized"}, 401)
                     return
-            fields, file_bytes, filename = self.read_form()
-            item_id, title = create_item(fields, file_bytes, filename)
+            fields, file_bytes, filename, file_ctype = self.read_form()
+            item_id, title = create_item(fields, file_bytes, filename, file_ctype)
             self.send_json({"ok": True, "id": item_id, "title": title, "url": f"/item?id={item_id}"}, 201)
             return
-        fields, file_bytes, filename = self.read_form()
+        fields, file_bytes, filename, file_ctype = self.read_form()
         if u.path == "/done":
             try:
                 item_id = int(fields.get("id", "0"))
@@ -1009,7 +1136,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path in ("/add", "/admin/add"):
             # 登记开放：谁都可以登记；管理页的登记表单也走同一口。
-            item_id, title = create_item(fields, file_bytes, filename)
+            item_id, title = create_item(fields, file_bytes, filename, file_ctype)
             try:
                 child = int(fields.get("child_id") or 0)
             except ValueError:
