@@ -1078,7 +1078,8 @@ class Handler(BaseHTTPRequestHandler):
                 return {k: str(v) for k, v in obj.items()}, None, None, ""
             except Exception:
                 return {}, None, None, ""
-        return parse_urlencoded(self, length)
+        _fields, _fb, _fn = parse_urlencoded(self, length)
+        return _fields, _fb, _fn, ""
 
     def do_add(self, redirect_to):
         fields, file_bytes, filename, file_ctype = self.read_form()
