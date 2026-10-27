@@ -33,8 +33,14 @@ API：POST /api/items，curl 和 iPhone 捷径都能直接传文件。
 
 运行：python3 app.py            # 默认 http://127.0.0.1:8765
 环境变量：PORT（默认 8765）、ADMIN_PASSWORD（默认 admin123，部署前务必改）、
-          API_TOKEN（可选，设了之后 API 须带 X-API-Token 头）、
+          API_TOKEN（可选，设了之后 API 须带 X-API-Token 头；管理页也可生成数据库令牌，只存哈希）、
+          LLM_API_KEY（可选，不设则 /api/ai-parse 明确返回未配置，改用粘贴 JSON）、
+          LLM_BASE_URL（默认 https://api.deepseek.com/v1，OpenAI 兼容）、
+          LLM_MODEL（默认 deepseek-chat）、LLM_VISION_MODEL（可选，拍照解析用，默认用 LLM_MODEL）、
           DATA_DIR（默认脚本旁的 data/，Docker 里用 /data）
+AI 录入：登记页文字 / 拍照先解析成草稿，逐条核对后经 /api/ai-batch 批量创建，草稿确认前不入库；
+        外部 AI 走 /api/lists + /api/items（见 SKILL.md），令牌只允许查列表和创建，不能删除和管理；
+        Caddy 公开时只反代 /api/lists 和 /api/items，不要反代 /admin、/api/ai-parse、/api/ai-batch。
 数据：SQLite + data/uploads/ 文件，备份时把 data/ 整个拷走即可。
 """
 import hashlib
@@ -56,6 +62,10 @@ DB_PATH = os.path.join(DATA_DIR, "board.db")
 PORT = int(os.environ.get("PORT", "8765"))
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 API_TOKEN = os.environ.get("API_TOKEN", "")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
+LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
+LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", "")
 MAX_FILE_BYTES = 50 * 1024 * 1024
 
 DEFAULT_SUBJECTS = ["语文", "数学", "英语", "物理", "化学", "道法", "历史", "地理"]
@@ -112,6 +122,7 @@ def migrate(conn):
         conn.execute("ALTER TABLE items ADD COLUMN child_id INTEGER NOT NULL DEFAULT 0")
     conn.execute("CREATE TABLE IF NOT EXISTS subjects (name TEXT PRIMARY KEY, ord INTEGER)")
     conn.execute("CREATE TABLE IF NOT EXISTS children (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS api_tokens (token_hash TEXT PRIMARY KEY, created TEXT NOT NULL)")
 
 
 def init_db():
@@ -858,7 +869,8 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
 <p class='muted'>这个接口只在局域网 / Tailscale 内可信，没有对外公开；
 如需加口令，部署时设 API_TOKEN，请求再带 X-API-Token 头。</p></details>"""
     body = (f"{f'<p><b>{esc(msg)}</b></p>' if msg else ''}"
-            "<div class='card'><h3>登记作业 / 通知</h3>"
+            + ai_entry_html(subjects, children, preselect_child)
+            + "<div class='card'><h3>登记作业 / 通知</h3>"
             "<p class='muted'>谁都可以登记，不需要密码；标题不填就用文件名。</p>"
             + add_form(subjects, children, "/add", preselect_subject, preselect_child) + "</div>"
             + api_help +
@@ -889,7 +901,8 @@ def admin_page(msg=""):
             f"<a href='/admin/children'><b>孩子管理</b><span class='muted'>{len(children)} 个孩子</span><span>›</span></a>"
             f"<a href='/admin/subjects'><b>科目管理</b><span class='muted'>{len(subjects)} 门学科</span><span>›</span></a>"
             f"<a href='/admin/items'><b>登记项目管理</b><span class='muted'>{len(items)} 条 · 按孩子分开管理</span><span>›</span></a>"
-            "</div>")
+            "</div>"
+            "<p class='muted'><a href='/admin/api-token'>API 令牌（给 AI 用）→</a> 生成后 AI 才能调 /api，令牌只存哈希，生成那一刻外不显示明文。</p>")
     return page("管理 - 作业板", body)
 
 
@@ -971,6 +984,247 @@ def admin_items_page(child_id=None):
 
 
 
+def api_token_ok(token):
+    """外部 AI 令牌是否有效：环境变量令牌或管理页生成的数据库令牌（只存哈希）二者任一对上即算。"""
+    if not token:
+        return False
+    if API_TOKEN and token == API_TOKEN:
+        return True
+    try:
+        conn = db()
+        row = conn.execute("SELECT 1 FROM api_tokens WHERE token_hash=?",
+                           (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+        conn.close()
+        return bool(row)
+    except sqlite3.OperationalError:
+        return False
+
+
+def has_any_api_token():
+    if API_TOKEN:
+        return True
+    try:
+        conn = db()
+        n = conn.execute("SELECT COUNT(*) FROM api_tokens").fetchone()[0]
+        conn.close()
+        return n > 0
+    except sqlite3.OperationalError:
+        return False
+
+
+def api_token_status():
+    env = bool(API_TOKEN)
+    created = ""
+    try:
+        conn = db()
+        row = conn.execute("SELECT created FROM api_tokens ORDER BY created DESC LIMIT 1").fetchone()
+        conn.close()
+        if row:
+            created = row[0]
+    except sqlite3.OperationalError:
+        pass
+    return env, created
+
+
+def admin_api_token_page(new_token=""):
+    env, created = api_token_status()
+    status = (f"<p class='muted'>环境变量令牌：{'已配置' if env else '未配置'}；"
+              f"管理页生成的令牌：{'已生成，生成时间 ' + esc(created) if created else '未生成'}。</p>"
+              "<p class='muted'>令牌只允许查列表和创建条目，不能删除、管理孩子或学科；"
+              "生成新令牌会使旧的数据库令牌失效，环境变量令牌不受影响。</p>")
+    shown = ""
+    if new_token:
+        shown = (f"<div class='card'><h3>新令牌（只显示这一次）</h3>"
+                 f"<p style='word-break:break-all'><code>{esc(new_token)}</code></p>"
+                 "<p class='muted'>复制后妥善保存，刷新页面就不再显示；丢了就重新生成一个。</p></div>")
+    body = (admin_top("/admin", "← 回管理")
+            + "<h3>API 令牌（给 AI 用）</h3>" + status + shown
+            + "<form method='post' action='/admin/api-token/generate' style='margin:12px 0'>"
+            + "<button>生成新令牌</button></form>"
+            + "<form method='post' action='/admin/api-token/revoke' style='margin:12px 0'>"
+            + "<button class='danger'>吊销数据库令牌</button></form>"
+            + "<details class='card'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>给 AI 的配置（点开看）</summary>"
+            + "<p class='muted'>把 HOST 换成这台服务器的地址；局域网用 LAN 地址，Tailscale 用 Tailscale 地址，"
+            + "公开域名走 Caddy 时只反代 /api/lists 和 /api/items，不要反代 /admin、/api/ai-parse、/api/ai-batch。</p>"
+            + "<pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'>"
+            + "GET http://HOST/api/lists\n"
+            + "  Header: X-API-Token: &lt;令牌&gt;\n"
+            + "POST http://HOST/api/items\n"
+            + "  Header: X-API-Token: &lt;令牌&gt;\n"
+            + "  表单：subject=学科名（必须和 lists 里的完全一致），child_id=孩子 id，\n"
+            + "  title、kind、body、due(YYYY-MM-DD)、file=文件（可选）</pre></details>")
+    return page("API 令牌 - 作业板", body)
+
+
+def validate_draft(raw, subjects, children, default_child=0):
+    """LLM / 粘贴 JSON 来的草稿只做校验和归一，不直接入库；学科、孩子对不上就留空，等用户在草稿卡里手选。"""
+    if not isinstance(raw, dict):
+        return {"title": "", "subject": "", "kind": "", "child_id": default_child, "due": "", "body": ""}
+    subject = (raw.get("subject") or "").strip()
+    if subject not in subjects:
+        subject = ""
+    kind = (raw.get("kind") or "").strip()
+    if kind not in KINDS:
+        kind = ""
+    child_id = default_child
+    try:
+        cid = int(raw.get("child_id") or 0)
+        if cid == 0 or any(c["id"] == cid for c in children):
+            child_id = cid
+    except (ValueError, TypeError):
+        pass
+    if raw.get("child_name"):
+        for c in children:
+            if c["name"] == (raw.get("child_name") or "").strip():
+                child_id = c["id"]
+    due = (raw.get("due") or "").strip()
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", due):
+        due = ""
+    return {"title": (raw.get("title") or "").strip(),
+            "subject": subject, "kind": kind, "child_id": child_id,
+            "due": due, "body": (raw.get("body") or "").strip()}
+
+
+def call_llm_parse(text, image_bytes, image_ctype):
+    """调 OpenAI 兼容的聊天接口做解析；没配 key 就明确返回未配置，不假装解析成功。"""
+    import base64
+    import urllib.error
+    import urllib.request
+    if not LLM_API_KEY:
+        return False, "llm_not_configured", "未配置 LLM_API_KEY，改用下面的粘贴 JSON，或在部署环境里设 LLM_API_KEY。"
+    model = LLM_VISION_MODEL if (image_bytes and LLM_VISION_MODEL) else LLM_MODEL
+    system = ("你是作业登记解析器，只输出 JSON 数组，不要输出任何其他文字或 Markdown。"
+              "每项字段：title（标题）、subject（学科，必须是下面列表里的原样字符串，对不上就留空）、"
+              "kind（notice/homework/material/answer/listening/announcement，对不上就留空）、"
+              "child_id（孩子 id，对不上就留 0）、due（YYYY-MM-DD，没有明确日期就留空）、body（正文）。"
+              f"今天是 {today()}，相对日期（明天、下周五等）要换算成绝对日期。"
+              f"学科列表：{json.dumps(get_subjects(), ensure_ascii=False)}。"
+              f"孩子列表：{json.dumps(get_children(), ensure_ascii=False)}。")
+    if image_bytes:
+        mime = image_ctype if (image_ctype or "").startswith("image/") else "image/jpeg"
+        b64 = base64.b64encode(image_bytes).decode()
+        content = [{"type": "text", "text": text or "请解析这张图里的作业和通知，按学科拆成多条。"},
+                   {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}]
+    else:
+        content = text
+    payload = json.dumps({"model": model, "temperature": 0.2,
+                          "messages": [{"role": "system", "content": system},
+                                       {"role": "user", "content": content}]}).encode()
+    req = urllib.request.Request(LLM_BASE_URL.rstrip("/") + "/chat/completions", data=payload, method="POST")
+    req.add_header("Authorization", "Bearer " + LLM_API_KEY)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        return False, "llm_error", f"模型接口返回 {e.code}，检查 LLM_BASE_URL / LLM_MODEL / key 是否正确。"
+    except Exception as e:
+        return False, "llm_error", f"调模型失败：{e}"
+    try:
+        content_out = data["choices"][0]["message"]["content"]
+    except Exception:
+        return False, "llm_bad_json", "模型返回格式不对，换个模型或重试一次。"
+    try:
+        start, end = content_out.index("["), content_out.rindex("]") + 1
+        raw_list = json.loads(content_out[start:end])
+    except Exception:
+        return False, "llm_bad_json", "模型没有返回可解析的 JSON 数组，重试一次或改用粘贴 JSON。"
+    if not isinstance(raw_list, list):
+        return False, "llm_bad_json", "模型返回的不是数组，重试一次或改用粘贴 JSON。"
+    subjects, children = get_subjects(), get_children()
+    drafts = [validate_draft(r, subjects, children, 0) for r in raw_list]
+    return True, "", drafts
+
+
+def ai_entry_html(subjects, children, preselect_child=0):
+    """登记页 AI 录入卡：文字 / 拍照先解析成草稿，逐条核对后批量创建；粘贴 JSON 是不花 API 钱的免费路径。"""
+    lists_json = json.dumps({"subjects": subjects, "children": children}, ensure_ascii=False)
+    js = r"""
+var lists = JSON.parse(document.getElementById('sb-lists').textContent);
+var kinds = [['notice','通知'],['homework','作业'],['material','学习资料'],['answer','答案'],['listening','听力'],['announcement','提醒']];
+function mk(tag, text) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; return e; }
+function sel(options, value) { var s = mk('select'); options.forEach(function(o) { var op = mk('option', o[1]); op.value = o[0]; if (String(o[0]) === String(value)) op.selected = true; s.appendChild(op); }); return s; }
+function renderDrafts(drafts) {
+  var box = document.getElementById('ai-drafts'); box.innerHTML = '';
+  drafts.forEach(function(d) {
+    var card = mk('div'); card.className = 'card'; card.style.margin = '12px 0';
+    var chk = mk('input'); chk.type = 'checkbox'; chk.checked = true; chk.style.width = '22px'; chk.style.height = '22px';
+    var title = mk('input'); title.value = d.title || ''; title.placeholder = '标题';
+    var subj = sel([['','学科（必选）']].concat(lists.subjects.map(function(s) { return [s, s]; })), d.subject || '');
+    var kind = sel([['','类型（可选）']].concat(kinds), d.kind || '');
+    var child = sel([['0','共享']].concat(lists.children.map(function(c) { return [String(c.id), c.name]; })), d.child_id || 0);
+    var due = mk('input'); due.type = 'date'; due.value = d.due || '';
+    var body = mk('textarea'); body.value = d.body || ''; body.placeholder = '正文';
+    var del = mk('button'); del.className = 'danger small'; del.textContent = '删这条草稿'; del.type = 'button';
+    del.onclick = function() { card.remove(); };
+    card.appendChild(chk); card.appendChild(title); card.appendChild(subj); card.appendChild(kind); card.appendChild(child); card.appendChild(due); card.appendChild(body); card.appendChild(del);
+    card._draft = {chk: chk, title: title, subj: subj, kind: kind, child: child, due: due, body: body};
+    box.appendChild(card);
+  });
+  document.getElementById('ai-status').textContent = drafts.length ? ('已生成 ' + drafts.length + ' 条草稿，核对后点批量创建。') : '没有生成草稿。';
+}
+document.getElementById('ai-parse-btn').onclick = async function() {
+  var btn = this; var st = document.getElementById('ai-status'); var fd = new FormData();
+  fd.append('text', document.getElementById('ai-text').value);
+  var f = document.getElementById('ai-image').files[0]; if (f) fd.append('image', f);
+  if (!document.getElementById('ai-text').value.trim() && !f) { st.textContent = '先写一句话或拍一张图。'; return; }
+  btn.disabled = true; st.textContent = '解析中…';
+  try {
+    var r = await fetch('/api/ai-parse', {method: 'POST', body: fd}); var j = await r.json();
+    if (j.ok) renderDrafts(j.drafts); else st.textContent = j.message || ('解析失败：' + (j.error || r.status));
+  } catch (e) { st.textContent = '解析失败：' + e; }
+  btn.disabled = false;
+};
+document.getElementById('ai-json-btn').onclick = function() {
+  var st = document.getElementById('ai-status');
+  try {
+    var v = JSON.parse(document.getElementById('ai-json').value);
+    var arr = Array.isArray(v) ? v : (v.drafts || []);
+    if (!arr.length) { st.textContent = 'JSON 里没有数组或 drafts。'; return; }
+    var subjects = lists.subjects, children = lists.children;
+    var drafts = arr.map(function(d) {
+      var subj = subjects.indexOf(d.subject) >= 0 ? d.subject : '';
+      var cid = 0; if (d.child_id) { var n = parseInt(d.child_id, 10); if (!isNaN(n)) cid = n; }
+      if (d.child_name) { children.forEach(function(c) { if (c.name === d.child_name) cid = c.id; }); }
+      return {title: d.title || '', subject: subj, kind: d.kind || '', child_id: cid, due: /^\d{4}-\d{2}-\d{2}$/.test(d.due || '') ? d.due : '', body: d.body || ''};
+    });
+    renderDrafts(drafts);
+  } catch (e) { st.textContent = 'JSON 解析失败：' + e; }
+};
+document.getElementById('ai-create-btn').onclick = async function() {
+  var btn = this; var st = document.getElementById('ai-status');
+  var cards = Array.prototype.slice.call(document.querySelectorAll('#ai-drafts .card'));
+  var drafts = [];
+  cards.forEach(function(card) { var d = card._draft; if (d && d.chk.checked) drafts.push({title: d.title.value, subject: d.subj.value, kind: d.kind.value, child_id: parseInt(d.child.value, 10) || 0, due: d.due.value, body: d.body.value}); });
+  if (!drafts.length) { st.textContent = '没有勾选的草稿。'; return; }
+  btn.disabled = true; st.textContent = '创建中…';
+  try {
+    var r = await fetch('/api/ai-batch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({drafts: drafts})});
+    var j = await r.json();
+    if (j.ok) { st.textContent = '已创建 ' + j.created.length + ' 条，失败 ' + j.failed.length + ' 条。'; document.getElementById('ai-drafts').innerHTML = ''; }
+    else st.textContent = '批量创建失败：' + (j.error || r.status);
+  } catch (e) { st.textContent = '批量创建失败：' + e; }
+  btn.disabled = false;
+};
+"""
+    html = ("<div class='card'><h3>AI 录入（文字 / 拍照）</h3>"
+            "<p class='muted'>写一句话或拍一张作业单，AI 先拆成草稿，你逐条核对后再批量创建；草稿确认前不入库。"
+            "没配 LLM 时 AI 解析会提示，改用下面的粘贴 JSON（免费聊天 App 里解析完复制过来也行）。</p>"
+            "<textarea id='ai-text' placeholder='例如：小明明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
+            "<input id='ai-image' type='file' accept='image/*' aria-label='拍照或选图'>"
+            "<button id='ai-parse-btn' type='button'>AI 解析成草稿</button>"
+            "<p id='ai-status' class='muted'></p>"
+            "<div id='ai-drafts'></div>"
+            "<button id='ai-create-btn' type='button'>批量创建已勾选</button>"
+            "<details style='margin-top:12px'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>粘贴 AI 结果 JSON（免费路径，点开看）</summary>"
+            "<textarea id='ai-json' placeholder='[{\"title\":\"数学练习册第10页\",\"subject\":\"数学\",\"kind\":\"homework\",\"child_id\":1,\"due\":\"2026-10-28\",\"body\":\"\"}]'></textarea>"
+            "<button id='ai-json-btn' type='button'>用粘贴的 JSON 生成草稿</button></details>"
+            "<script type='application/json' id='sb-lists'>__LISTS_JSON__</script>"
+            "<script>" + js + "</script></div>")
+    return html.replace("__LISTS_JSON__", lists_json)
+
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -1033,6 +1287,11 @@ class Handler(BaseHTTPRequestHandler):
                                          int(params.get("child", ["0"])[0] or 0) if params.get("child", ["0"])[0].isdigit() else 0))
             return
         if u.path == "/api/lists":
+            if has_any_api_token():
+                token = self.headers.get("X-API-Token", "") or params.get("token", [""])[0]
+                if not api_token_ok(token):
+                    self.send_json({"ok": False, "error": "unauthorized"}, 401)
+                    return
             self.send_json({"ok": True,
                             "children": [{"id": 0, "name": "全部"}] + [{"id": c["id"], "name": c["name"]} for c in get_children()],
                             "subjects": get_subjects()})
@@ -1040,6 +1299,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api":
             self.send_json({"ok": True, "post": "/api/items",
                             "lists": "/api/lists",
+                            "ai_parse": "/api/ai-parse (LAN only, not via Caddy)",
+                            "ai_batch": "/api/ai-batch (LAN only, not via Caddy)",
                             "fields": "title(可选，不填用文件名), subject, subject_new, kind(不填时：音频->听力，PDF->学习资料，其余->通知), body, link_url, due, visible_at, pinned, child_id",
                             "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" http://HOST:8765/api/items"})
             return
@@ -1085,11 +1346,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_html(admin_page())
             return
-        if u.path in ("/admin/children", "/admin/subjects", "/admin/items"):
+        if u.path in ("/admin/children", "/admin/subjects", "/admin/items", "/admin/api-token"):
             if not is_admin(self):
                 self.redirect("/admin")
                 return
-            if u.path == "/admin/children":
+            if u.path == "/admin/api-token":
+                self.send_html(admin_api_token_page())
+            elif u.path == "/admin/children":
                 self.send_html(admin_children_page())
             elif u.path == "/admin/subjects":
                 self.send_html(admin_subjects_page())
@@ -1167,16 +1430,53 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(error_page("文件太大了", "单个文件最大 50MB，请压缩或拆分后再登记。"), 413)
             return
         if u.path == "/api/items":
-            if API_TOKEN:
+            if has_any_api_token():
                 token = self.headers.get("X-API-Token", "") or parse_qs(urlparse(self.path).query).get("token", [""])[0]
-                if token != API_TOKEN:
+                if not api_token_ok(token):
                     self.send_json({"ok": False, "error": "unauthorized"}, 401)
                     return
             fields, file_bytes, filename, file_ctype = self.read_form()
             item_id, title = create_item(fields, file_bytes, filename, file_ctype)
             self.send_json({"ok": True, "id": item_id, "title": title, "url": f"/item?id={item_id}"}, 201)
             return
+        if u.path == "/api/ai-batch":
+            try:
+                raw = json.loads(self.rfile.read(clen).decode("utf-8")) if clen else {}
+            except Exception:
+                raw = {}
+            drafts_in = raw.get("drafts") if isinstance(raw, dict) else None
+            if not isinstance(drafts_in, list) or not drafts_in:
+                self.send_json({"ok": False, "error": "empty drafts"}, 400)
+                return
+            subjects, children = get_subjects(), get_children()
+            created, failed = [], []
+            for raw_draft in drafts_in:
+                d = validate_draft(raw_draft, subjects, children, 0)
+                if not d["subject"]:
+                    failed.append({"draft": d, "error": "subject required"})
+                    continue
+                item_id, title = create_item({"title": d["title"], "subject": d["subject"],
+                                              "kind": d["kind"], "child_id": str(d["child_id"]),
+                                              "due": d["due"], "body": d["body"]}, None, "")
+                created.append({"id": item_id, "title": title})
+            self.send_json({"ok": True, "created": created, "failed": failed})
+            return
         fields, file_bytes, filename, file_ctype = self.read_form()
+        if u.path == "/api/ai-parse":
+            text = (fields.get("text") or "").strip()
+            if file_bytes and len(file_bytes) > 10 * 1024 * 1024:
+                self.send_json({"ok": False, "error": "image too large, max 10MB"}, 413)
+                return
+            if not text and not file_bytes:
+                self.send_json({"ok": False, "error": "empty input"}, 400)
+                return
+            ok, err, result = call_llm_parse(text, file_bytes, file_ctype)
+            if not ok:
+                self.send_json({"ok": False, "error": err, "message": result},
+                               503 if err == "llm_not_configured" else 502)
+                return
+            self.send_json({"ok": True, "drafts": result})
+            return
         if u.path == "/done":
             try:
                 item_id = int(fields.get("id", "0"))
@@ -1211,6 +1511,23 @@ class Handler(BaseHTTPRequestHandler):
         if not is_admin(self):
             self.send_response(403)
             self.end_headers()
+            return
+        if u.path == "/admin/api-token/generate":
+            token = "sb_" + secrets.token_urlsafe(24)
+            conn = db()
+            conn.execute("DELETE FROM api_tokens")
+            conn.execute("INSERT INTO api_tokens VALUES (?,?)",
+                         (hashlib.sha256(token.encode()).hexdigest(), now_dt()))
+            conn.commit()
+            conn.close()
+            self.send_html(admin_api_token_page(token))
+            return
+        if u.path == "/admin/api-token/revoke":
+            conn = db()
+            conn.execute("DELETE FROM api_tokens")
+            conn.commit()
+            conn.close()
+            self.redirect("/admin/api-token")
             return
         if u.path == "/admin/delete":
             try:

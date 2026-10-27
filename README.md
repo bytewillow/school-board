@@ -111,4 +111,16 @@ docker run -d --name school-board -p 8765:8765 \
 ```
 本地用 compose 部署时，先在 shell 里 `export ADMIN_PASSWORD='你自己设的密码'`，再 `docker compose up -d --build`；默认只绑 127.0.0.1，局域网访问再把端口改成 `8765:8765`，不要直接公网暴露。
 
+## AI 录入
+
+- 方案一（登记页集成）：登记页有“AI 录入（文字 / 拍照）”，写一句话或拍一张作业单，
+  AI 先拆成草稿，你逐条核对后再批量创建，草稿确认前不入库；没配 LLM 时用
+  下面的粘贴 JSON（免费聊天 App 里解析完复制过来也行）。LLM 配置见 app.py
+  头部环境变量：`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_VISION_MODEL`。
+- 方案二（外部 AI 调 API）：管理页“API 令牌（给 AI 用）”生成令牌，只存哈希，
+  生成那一刻外不显示明文；AI 的完整用法见仓库根目录 `SKILL.md`，要点是先
+  `GET /api/lists` 再逐条 `POST /api/items`，确认后才创建，令牌只允许查列表和
+  创建，不能删除和管理。公开域名走 Caddy 时只反代 `/api/lists` 和 `/api/items`，
+  不要反代 `/admin`、`/api/ai-parse`、`/api/ai-batch`。
+
 License：MIT，见 LICENSE。
