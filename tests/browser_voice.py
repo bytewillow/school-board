@@ -62,6 +62,9 @@ with tempfile.TemporaryDirectory(prefix='board-voice-test-') as directory, ExitS
             expect(page.locator('h1')).to_have_text('给哪个孩子登记？')
             page.get_by_role('link',name='给小满登记',exact=True).click()
             expect(page.locator('#entry-child')).to_have_value('2')
+            expect(page.locator('#ai-entry')).to_be_visible()
+            expect(page.locator('#manual-entry')).to_be_hidden()
+            page.locator('[data-entry="manual"]').click()
             expect(page.locator('#manual-entry')).to_be_visible()
             assert page.locator('#registration').locator('select option[value="0"]').count()==0
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

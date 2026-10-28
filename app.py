@@ -585,13 +585,11 @@ flex-direction:column;justify-content:space-evenly;align-items:center;padding:20
 .spine i{width:14px;height:14px;border-radius:50%;background:#f4f5f7;border:2px solid #ddd;display:block}
 .binder-pane{flex:1;min-width:0;background:#fff;padding:20px}
 .binder-pane .row{padding:8px 0}
-.binder.opening{animation:bookopen 650ms cubic-bezier(.22,.9,.3,1);transform-origin:left center}
-@keyframes bookopen{from{transform:perspective(1000px) rotateY(-14deg) translateX(-10px);opacity:.5}to{transform:none;opacity:1}}
+
 .notebooks{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
 .notebook{display:block;background:#fff;border:1px solid #e8e8e8;border-left:14px solid #2f66c4;
 border-radius:20px;padding:22px;box-shadow:0 1px 3px rgba(0,0,0,.05);color:#222;
 transition:transform 300ms ease,box-shadow 300ms ease}
-.notebook.opening{transform:perspective(800px) rotateY(-8deg) scale(1.02);box-shadow:0 8px 20px rgba(0,0,0,.12)}
 .notebook h2{font-size:22px}.notebook .sub{color:#777;font-size:15px;margin-top:6px}
 @media(min-width:701px){.binder{align-items:stretch}.binder-pane{max-height:calc(100dvh - 150px);overflow-y:auto}}
 @media(max-width:700px){
@@ -600,7 +598,7 @@ transition:transform 300ms ease,box-shadow 300ms ease}
  .binder-tab.on{background:#fff}.spine{display:none}.binder-pane{padding:16px}
  .notebooks{grid-template-columns:1fr}
 }
-@media(prefers-reduced-motion:reduce){.binder.opening,.notebook{animation:none!important;transition:none!important}}
+@media(prefers-reduced-motion:reduce){.notebook{animation:none!important;transition:none!important}}
 @media(min-width:900px){.listgrid{grid-template-columns:1fr 1fr}}
 /* Notebook overview and task-first pages. No webfonts or external assets. */
 .notebook{display:flex;flex-direction:column;min-width:0;padding:0;overflow:hidden;transition:box-shadow 150ms ease}
@@ -823,10 +821,9 @@ def binder_tabs(subjects, per_subject, active, child, view):
     return "<nav class='binder-tabs' aria-label='学科活页夹'>" + "".join(tabs) + "</nav>"
 
 
-def binder_wrap(tabs, pane, opening=False):
+def binder_wrap(tabs, pane):
     spine = "<div class='spine' aria-hidden='true'><i></i><i></i><i></i><i></i><i></i></div>"
-    cls = "binder opening" if opening else "binder"
-    return (f"<div class='{cls}'>{tabs}{spine}<div class='binder-pane'>{pane}</div></div>"
+    return (f"<div class='binder'>{tabs}{spine}<div class='binder-pane'>{pane}</div></div>"
             "<script>var t=document.querySelector('.binder-tab.on');if(t&&matchMedia('(max-width:700px)').matches){t.parentElement.scrollLeft=Math.max(0,t.offsetLeft-t.parentElement.offsetLeft-12);}</script>")
 
 
@@ -986,7 +983,7 @@ def kid_page(params):
                 f"<input type='hidden' name='subject' value='{esc(subject)}'>"
                 f"<input type='hidden' name='view' value='{esc(view)}'>"
                 f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
-        body = context + binder_wrap(tabs, pane, opening=True)
+        body = context + binder_wrap(tabs, pane)
         return contextual_page(f"{subject} - 作业板", body, child)
     pins = [i for i in items if i["kind"] == "announcement" and i["pinned"]][:2]
     # 封面页：少量待办、提醒、各科计数，不把所有作业堆在首页。
@@ -995,7 +992,7 @@ def kid_page(params):
         pane = (f"<h2>搜索“{esc(q)}”</h2>" + "".join(compact_row(i, child) for i in shown) +
                 (empty_state(f"没搜到“{q}”，换个词试试，或者去登记一条。",
                              "<p><a class='back' href='/'>← 回首页</a></p>") if not shown else ""))
-        body = context + binder_wrap(tabs, pane, opening=True)
+        body = context + binder_wrap(tabs, pane)
         return contextual_page("作业板", body, child)
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
     if len(children) > 1 and not child and not subject:
@@ -1032,7 +1029,7 @@ def kid_page(params):
              f"<input type='hidden' name='view' value='{esc(view)}'>"
              f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>"
              + timer_details())
-    body = context + binder_wrap(tabs, pane, opening=True)
+    body = context + binder_wrap(tabs, pane)
     return contextual_page("作业板", body, child)
 
 
@@ -1074,27 +1071,30 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
                     "<p class='form-note'>各录入方式自动沿用，不用重复姓名。切换只影响新内容；已有草稿可逐条改归属。</p></div>")
     session = VIEW_SESSION.get()
     if session and session['role'] == 'student':
-        context_html = (f"<div class='card' id='registration-context' hidden><p>本次登记给 {esc(children[0]['name'])}</p>"
+        # 学生登记固定为自己，顶部的“本次登记给”提示不再需要；但 entry-child
+        # 隐藏域必须保留，文字 / 语音录入的 JS 靠它取孩子 id，JS 也会找
+        # registration-context 这个容器。去掉卡片样式后空容器不占视觉空间。
+        context_html = (f"<div id='registration-context' hidden>"
                         f"<input id='entry-child' type='hidden' value='{preselect_child}'></div>")
     if session and session['role'] == 'student':
         api_help = ''
     message_html = f"<p role='status'>{esc(msg)}</p>" if msg else ""
     body = ("<link rel='stylesheet' href='/static/entry.css'><div id='registration'><header class='entry-header'><h1>把今天的作业记下来</h1>"
-            "<p class='muted'>手动记一条，或说一段、拍张照，核对后再创建。</p></header>"
+            "<p class='muted'>说一段、拍张照，或手动记一条，核对后再创建。</p></header>"
             + message_html + context_html +
             "<div class='entry-switch' hidden aria-label='登记方式'>"
-            "<button type='button' data-entry='manual' aria-controls='manual-entry' aria-pressed='true'>手动登记</button>"
-            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='false'>文字 / 拍照 / 语音</button></div>"
-            "<section id='manual-entry' class='entry-section card'><p class='entry-step'>填写内容</p><h2>手动登记</h2>"
+            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='true'>文字 / 拍照 / 语音</button>"
+            "<button type='button' data-entry='manual' aria-controls='manual-entry' aria-pressed='false'>手动登记</button></div>"
+            "<section id='ai-entry' class='entry-section'>" + ai_entry_html(subjects, children) + "</section>"
+            + "<section id='manual-entry' class='entry-section card'><p class='entry-step'>填写内容</p><h2>手动登记</h2>"
             + add_form(subjects, children, "/add", preselect_subject, preselect_child) + "</section>"
-            + "<section id='ai-entry' class='entry-section'>" + ai_entry_html(subjects, children) + "</section>"
             + api_help
             + ("<p><a class='back' href='/'>← 回首页</a></p>" if (VIEW_SESSION.get() or {}).get('role') == 'student' else
                "<p><a class='back' href='/'>← 回首页</a> <a class='back' href='/admin'>去管理</a></p>") +
             "<script>(function(){var buttons=document.querySelectorAll('[data-entry]');"
             "function show(mode){document.getElementById('manual-entry').hidden=mode!=='manual';document.getElementById('ai-entry').hidden=mode!=='ai';"
             "buttons.forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.entry===mode));});}"
-            "document.querySelector('.entry-switch').hidden=false;buttons.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.entry);});});show('manual');})();</script>")
+            "document.querySelector('.entry-switch').hidden=false;buttons.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.entry);});});show('ai');})();</script>")
     body += """<script>(function(){
 var context=document.getElementById('entry-child');
 var radios=document.querySelectorAll('#manual-entry input[type="radio"][name="child_id"]');
@@ -1868,7 +1868,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path in ('/logout', '/admin/logout'):
             revoke_session(self)
-            self.redirect('/admin' if u.path == '/admin/logout' else '/login',
+            self.redirect('/login',
                           [session_cookie(self, clear=True), 'admin=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'])
             return
         # 文件过大先拦住，不生成一条空内容：这是出错态，不是静默成功。

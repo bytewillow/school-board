@@ -10,7 +10,7 @@
 - 学生首页复用原活页夹，固定为自己，不展示其他孩子；登记页和内嵌 AI 列表也只有自己，不能切换归属。历史共享条目仍可看、可完成。
 - 新密码为每次随机 16 字节 salt + PBKDF2-HMAC-SHA256（200000 次），保存 `salt_hex:hash_hex`；会话明文随机 token 只进 HttpOnly cookie，数据库仅存 SHA256。有效期 30 天；失效/过期会话当未登录处理。
 - Cookie 为 `Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`。请求带 `X-Forwarded-Proto: https` 时加 `Secure`，直接 HTTP 不加。代理必须覆盖该转发头，不应让不可信代理注入。HTTP 登录的密码和 cookie 不受传输加密保护；正式远程使用应经 HTTPS。
-- 学生用“退出登录”（`POST /logout`）；家长沿用“退出管理”（`POST /admin/logout`），均删除对应新会话并清除新旧 cookie。兼容旧 cookie 是规格要求：旧 cookie 本身没有服务端会话行，复制出去的旧 cookie 无法靠此次登出撤销；不要把它当作可撤销的新会话。
+- 学生用“退出登录”（`POST /logout`）；家长沿用“退出管理”（`POST /admin/logout`），均删除对应新会话并清除新旧 cookie，退出后都回到主登录页（`/login`）。兼容旧 cookie 是规格要求：旧 cookie 本身没有服务端会话行，复制出去的旧 cookie 无法靠此次登出撤销；不要把它当作可撤销的新会话。
 
 ## 权限对账
 
