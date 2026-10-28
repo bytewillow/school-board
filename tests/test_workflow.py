@@ -682,5 +682,54 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(self.raw('/admin/item/edit', 'POST', fields)[1]['Location'], '/admin')
         self.assertEqual(app.get_item(item_id)['title'], '新标题')
 
+    def test_student_item_edit_delete(self):
+        own = self.item('自己的作业', child=1)
+        other = self.item('别人的作业', child=2)
+        shared = self.item('共享作业', child=0)
+        hidden = self.item('未显示的作业', child=1, visible_at='2999-01-01T00:00')
+        scookie = self.student()
+        status, _, body = self.raw(f'/item?id={own}', cookie=scookie)
+        self.assertEqual(status, 200)
+        self.assertIn(f"/item/edit?id={own}", body)
+        self.assertIn(f"/item/delete?id={own}", body)
+        status, _, body = self.raw(f'/item?id={shared}', cookie=scookie)
+        self.assertEqual(status, 200)
+        self.assertNotIn('/item/edit?', body)
+        self.assertNotIn('/item/delete?', body)
+        self.assertEqual(self.raw(f'/item?id={other}', cookie=scookie)[0], 404)
+        for path in (f'/item/edit?id={other}', f'/item/edit?id={shared}', f'/item/edit?id={hidden}',
+                     f'/item/delete?id={other}', f'/item/delete?id={shared}', f'/item/delete?id={hidden}'):
+            self.assertEqual(self.raw(path, cookie=scookie)[0], 404)
+        status, _, body = self.raw(f'/item/edit?id={own}', cookie=scookie)
+        self.assertEqual(status, 200)
+        self.assertIn('自己的作业', body)
+        self.assertNotIn("name='child_id'", body)
+        fields = {'id': own, 'title': '改后的作业', 'subject': '语文', 'kind': 'notice',
+                  'body': '改后的正文', 'link_url': '', 'due': '2026-11-02',
+                  'visible_at': '', 'pinned': 'on', 'child_id': '2'}
+        status, headers, _ = self.raw('/item/edit', 'POST', fields, scookie)
+        self.assertEqual((status, headers['Location']), (303, f'/item?id={own}'))
+        it = app.get_item(own)
+        self.assertEqual((it['title'], it['subject'], it['kind'], it['child_id'], it['pinned']),
+                         ('改后的作业', '语文', 'notice', 1, 1))
+        bad = dict(fields, title='   ')
+        status, _, body = self.raw('/item/edit', 'POST', bad, scookie)
+        self.assertEqual(status, 200)
+        self.assertIn('标题不能为空', body)
+        self.assertEqual(app.get_item(own)['title'], '改后的作业')
+        status, _, body = self.raw(f'/item/delete?id={own}', cookie=scookie)
+        self.assertEqual(status, 200)
+        self.assertIn('确认删除', body)
+        status, headers, _ = self.raw('/item/delete', 'POST', {'id': own}, scookie)
+        self.assertEqual((status, headers['Location']), (303, '/'))
+        self.assertIsNone(app.get_item(own))
+        self.assertEqual(self.raw('/item/delete', 'POST', {'id': other}, scookie)[0], 404)
+        self.assertIsNotNone(app.get_item(other))
+        self.assertEqual(self.raw(f'/item/edit?id={own}', cookie='')[1]['Location'], '/login')
+        self.assertEqual(self.raw('/item/edit', 'POST', fields)[1]['Location'], '/login')
+        self.assertEqual(self.raw(f'/item/delete?id={other}')[1]['Location'], '/login')
+        status, _, _ = self.raw(f'/item/edit?id={shared}', cookie=self.cookie)
+        self.assertEqual(status, 200)
+
 if __name__ == '__main__':
     unittest.main()

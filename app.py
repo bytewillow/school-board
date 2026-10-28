@@ -776,6 +776,10 @@ def item_card(it, children, detail=False, child=0):
                 f"<button class='{cls}'>{label}</button></form>")
     if not detail:
         out += f"<p><a href='/item?id={it['id']}'>打开详情 →</a></p>"
+    session = VIEW_SESSION.get()
+    if detail and session and session["role"] == "student" and it.get("child_id") == session["child_id"]:
+        out += (f"<p><a class='back' href='/item/edit?id={it['id']}'>修改</a> "
+                f"<a class='back' href='/item/delete?id={it['id']}'>删除</a></p>")
     return out + "</div>"
 
 
@@ -1283,6 +1287,74 @@ def admin_item_edit_page(it, msg=""):
     return page("修改登记项目 - 作业板", body)
 
 
+def item_edit_allowed(it, session):
+    """学生改删的权限：家长什么都能改；学生只能改自己可见的本子项目。
+
+    历史共享（child_id=0）学生不能改删，改了会影响所有本子；未到显示时间的
+    项目学生也看不到，同样不能从这里改删。"""
+    if not it or not session:
+        return False
+    if session["role"] == "parent":
+        return True
+    if session["role"] != "student":
+        return False
+    if it.get("child_id") != session["child_id"]:
+        return False
+    return not (it.get("visible_at") and it["visible_at"] > now_dt())
+
+
+def student_item_edit_page(it, msg=""):
+    """学生改自己作业的编辑页：字段与管理端修改一致，但归属固定为自己，不选孩子。"""
+    subjects = get_subjects()
+    subj_options = "".join(
+        f"<option value='{esc(s)}' {'selected' if s == it['subject'] else ''}>{esc(s)}</option>"
+        for s in subjects)
+    kind_options = "".join(
+        f"<option value='{k}' {'selected' if k == it['kind'] else ''}>{v}</option>"
+        for k, v in KINDS.items())
+    attachment = ""
+    if it.get('filename'):
+        attachment = f"<p class='muted'>附件：{esc(it['filename'])}（本次修改不换附件）</p>"
+    body = (f"<div class='card'><h3>修改作业</h3>"
+            + (f"<p role='status'>{esc(msg)}</p>" if msg else '')
+            + f"<form method='post' action='/item/edit'>"
+            f"<input type='hidden' name='id' value='{it['id']}'>"
+            "<label class='form-field' for='edit-title'>标题</label>"
+            f"<input id='edit-title' name='title' value='{esc(it['title'])}' required>"
+            "<label class='form-field' for='edit-subject'>学科</label>"
+            f"<select id='edit-subject' name='subject'>{subj_options}</select>"
+            "<label class='form-field' for='edit-kind'>类型</label>"
+            f"<select id='edit-kind' name='kind'>{kind_options}</select>"
+            "<label class='form-field' for='edit-body'>文字内容</label>"
+            f"<textarea id='edit-body' name='body' rows='4'>{esc(it['body'] or '')}</textarea>"
+            "<label class='form-field' for='edit-link'>原链接</label>"
+            f"<input id='edit-link' name='link_url' type='url' value='{esc(it['link_url'] or '')}' placeholder='https://…'>"
+            "<label class='form-field' for='edit-due'>截止日期（可选）</label>"
+            f"<input id='edit-due' name='due' type='date' value='{esc(it['due'] or '')}'>"
+            "<label class='form-field' for='edit-visible'>到这个时间才显示（可选）</label>"
+            f"<input id='edit-visible' name='visible_at' type='datetime-local' value='{esc(it['visible_at'] or '')}'>"
+            "<label style='display:flex;gap:10px;align-items:center;min-height:48px'>"
+            f"<input type='checkbox' name='pinned' {'checked' if it['pinned'] else ''}> 置顶提醒</label>"
+            + attachment
+            + "<button class='full'>保存修改</button></form></div>"
+            f"<p><a class='back' href='/item?id={it['id']}'>← 不改了，回去</a></p>")
+    return page("修改作业 - 作业板", body)
+
+
+def student_item_delete_page(it):
+    """学生删自己作业的确认页：删除不可逆，点进来只确认，不直接删。"""
+    attachment = f"<p class='muted'>附件：{esc(it['filename'])}（删除时会一并删掉）</p>" if it.get('filename') else ""
+    body = (f"<div class='card'><h3>确认删除这条作业吗？</h3>"
+            f"<p>{esc(it['title'])}</p>"
+            "<p class='muted'>删除后无法恢复，家长也找不回来。</p>"
+            + attachment
+            + f"<form method='post' action='/item/delete'>"
+            f"<input type='hidden' name='id' value='{it['id']}'>"
+            "<button class='danger full'>确认删除</button></form></div>"
+            f"<p><a class='back' href='/item?id={it['id']}'>← 不删了，回去</a></p>")
+    return page("删除作业 - 作业板", body)
+
+
 def api_token_ok(token):
     """外部 AI 令牌是否有效：环境变量令牌或管理页生成的数据库令牌（只存哈希）二者任一对上即算。"""
     if not token:
@@ -1661,7 +1733,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ('/api/ai-parse', '/api/ai-batch', '/api/ai-voice') and not self.session:
             self.send_json({'ok': False, 'error': 'unauthorized'}, 401)
             return False
-        protected = path in ('/', '/register', '/item', '/done', '/add', '/admin/add', '/logout') or path.startswith('/uploads/')
+        protected = path in ('/', '/register', '/item', '/item/edit', '/item/delete', '/done', '/add', '/admin/add', '/logout') or path.startswith('/uploads/')
         if protected and not self.session:
             self.redirect('/login')
             return False
@@ -1802,6 +1874,19 @@ class Handler(BaseHTTPRequestHandler):
                         self.send_html(admin_items_page(int(raw)))
                     except ValueError:
                         self.send_html(admin_items_page(None))
+            return
+        if u.path in ("/item/edit", "/item/delete"):
+            try:
+                it = get_item(int(params.get("id", ["0"])[0]))
+            except ValueError:
+                it = None
+            if not item_edit_allowed(it, self.session):
+                self.send_html(error_page("没找到这条内容", "它可能不存在，或者不属于你的本子。"), 404)
+                return
+            if u.path == "/item/edit":
+                self.send_html(student_item_edit_page(it))
+            else:
+                self.send_html(student_item_delete_page(it))
             return
         if u.path == "/admin/item/edit":
             if not is_admin(self):
@@ -2046,6 +2131,62 @@ class Handler(BaseHTTPRequestHandler):
             ref = urlparse(self.headers.get("Referer", "") or "")
             back = ref.path + ("?" + ref.query if ref.query else "")
             self.redirect(back if back.startswith("/") else "/")
+            return
+        if u.path in ("/item/edit", "/item/delete"):
+            try:
+                item_id = int(fields.get("id", "0"))
+            except ValueError:
+                item_id = 0
+            it = get_item(item_id)
+            if not item_edit_allowed(it, self.session):
+                self.send_html(error_page("没找到这条内容", "它可能不存在，或者不属于你的本子。"), 404)
+                return
+            if u.path == "/item/delete":
+                if it["stored"]:
+                    try:
+                        os.remove(os.path.join(UPLOAD_DIR, it["stored"]))
+                    except OSError:
+                        pass
+                conn = db()
+                conn.execute("DELETE FROM items WHERE id=?", (item_id,))
+                conn.commit()
+                conn.close()
+                self.redirect("/")
+                return
+            title = (fields.get("title") or "").strip()
+            subject = fields.get("subject") or ""
+            kind = fields.get("kind") or ""
+            due = (fields.get("due") or "").strip()
+            visible_at = (fields.get("visible_at") or "").strip()
+            error = ""
+            if not title:
+                error = "标题不能为空，未保存。"
+            elif subject not in get_subjects():
+                error = "学科不存在，未保存。"
+            elif kind not in KINDS:
+                error = "类型不存在，未保存。"
+            elif due and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
+                error = "截止日期格式不对，未保存。"
+            elif visible_at and not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?", visible_at):
+                error = "显示时间格式不对，未保存。"
+            if error:
+                draft = dict(it)
+                draft.update(title=title, subject=subject, kind=kind,
+                             body=fields.get("body") or "",
+                             link_url=fields.get("link_url") or "", due=due,
+                             visible_at=visible_at,
+                             pinned=1 if fields.get("pinned") else 0)
+                self.send_html(student_item_edit_page(draft, error))
+                return
+            conn = db()
+            conn.execute("UPDATE items SET title=?, subject=?, kind=?, body=?, link_url=?,"
+                         "due=?, visible_at=?, pinned=? WHERE id=?",
+                         (title, subject, kind, fields.get("body") or "",
+                          safe_link(fields.get("link_url")), due, visible_at,
+                          1 if fields.get("pinned") else 0, item_id))
+            conn.commit()
+            conn.close()
+            self.redirect(f"/item?id={item_id}")
             return
         if u.path == '/login':
             with session_db() as conn:
