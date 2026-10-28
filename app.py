@@ -37,6 +37,9 @@ API：POST /api/items，curl 和 iPhone 捷径都能直接传文件。
           LLM_API_KEY（可选，不设则 /api/ai-parse 明确返回未配置，改用粘贴 JSON）、
           LLM_BASE_URL（默认 https://api.deepseek.com/v1，OpenAI 兼容）、
           LLM_MODEL（默认 deepseek-chat）、LLM_VISION_MODEL（可选，拍照解析用，默认用 LLM_MODEL）、
+          STT_API_KEY（可选，语音转写服务 key，与 LLM 独立配置）、
+          STT_BASE_URL（默认 https://api.openai.com/v1，须支持 /audio/transcriptions）、
+          STT_MODEL（默认 whisper-1，须支持 multipart + response_format=json）、
           DATA_DIR（默认脚本旁的 data/，Docker 里用 /data）
 AI 录入：登记页文字 / 拍照先解析成草稿，逐条核对后经 /api/ai-batch 批量创建，草稿确认前不入库；
         外部 AI 走 /api/lists + /api/items（见 SKILL.md），令牌允许查列表、读取可见内容和创建，不能删除和管理；
@@ -66,6 +69,14 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
 LLM_VISION_MODEL = os.environ.get("LLM_VISION_MODEL", "")
+# Separate, opt-in speech service: a chat endpoint (e.g. DeepSeek) need not support audio.
+STT_API_KEY = os.environ.get("STT_API_KEY", "")
+STT_BASE_URL = os.environ.get("STT_BASE_URL", "https://api.openai.com/v1")
+STT_MODEL = os.environ.get("STT_MODEL", "whisper-1")
+MAX_AUDIO_BYTES = 10 * 1024 * 1024
+AUDIO_TYPES = {"audio/webm": "webm", "audio/mp4": "m4a", "audio/m4a": "m4a",
+               "audio/x-m4a": "m4a", "audio/ogg": "ogg", "audio/wav": "wav",
+               "audio/x-wav": "wav", "audio/mpeg": "mp3"}
 MAX_FILE_BYTES = 50 * 1024 * 1024
 
 DEFAULT_SUBJECTS = ["语文", "数学", "英语", "物理", "化学", "道法", "历史", "地理"]
@@ -238,7 +249,7 @@ def decode_filename(raw):
 def parse_multipart(handler, length, ctype):
     m = re.search(r"boundary=([^;]+)", ctype or "")
     if not m:
-        return {}, None, None
+        return {}, None, "", ""
     boundary = b"--" + m.group(1).strip().strip('"').encode()
     body = handler.rfile.read(length)
     fields, file_bytes, filename, file_ctype = {}, None, "", ""
@@ -540,6 +551,13 @@ def page(title, body):
             "</body></html>").encode()
 
 
+def contextual_page(title, body, child=0):
+    content = page(title, body)
+    if child and any(c["id"] == child for c in get_children()):
+        content = content.replace(b"href='/register'", f"href='/register?child={child}'".encode())
+    return content
+
+
 def error_page(title, msg):
     return page(title, f"<div class='card empty'><div class='big'>😕</div><h3>{esc(title)}</h3>"
                        f"<p class='muted'>{esc(msg)}</p>"
@@ -639,7 +657,7 @@ def item_card(it, children, detail=False, child=0):
         label = "↩ 取消完成" if it["done"] else "✅ 标为已完成"
         cls = "" if it["done"] else "done"
         if not it.get("child_id") and len(children) > 1:
-            out += "<p class='shared-note'>这是一份共享作业，完成状态会同步到所有本子。</p>"
+            out += "<p class='shared-note'>这是一份历史共享作业，完成状态会同步到所有本子；新登记仅支持具体孩子，此记录未迁移或删除。</p>"
         out += (f"<form method='post' action='/done'><input type='hidden' name='id' value='{it['id']}'>"
                 f"<button class='{cls}'>{label}</button></form>")
     if not detail:
@@ -773,12 +791,10 @@ def add_form(subjects, children, action="/add", preselect_subject="", preselect_
         f"{'checked' if k == 'notice' else ''}> {v}</label>" for k, v in KINDS.items())
     child_radios = ""
     if children:
-        child_radios = ("<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>给谁</legend><div class='chips'>"
-                        f"<label class='chip'><input type='radio' name='child_id' value='0' {'checked' if not preselect_child else ''}> 共享</label>" +
-                        "".join(f"<label class='chip'><input type='radio' name='child_id' value='{c['id']}' "
+        child_radios = ("<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>给谁</legend><div class='chips'>" +
+                        "".join(f"<label class='chip'><input type='radio' name='child_id' required value='{c['id']}' "
                                 f"{'checked' if preselect_child == c['id'] else ''}> {esc(c['name'])}</label>"
-                                for c in children) + "</div></fieldset>"
-                        "<p class='form-note'>共享内容会出现在每个本子里；共享作业的完成状态也共用。</p>")
+                                for c in children) + "</div></fieldset>")
     extra = ""
     if show_extra:
         extra = ("<label class='form-field' for='entry-visible'>到这个时间才显示（答案类建议填）</label>"
@@ -786,21 +802,21 @@ def add_form(subjects, children, action="/add", preselect_subject="", preselect_
                  "<label style='display:flex;gap:10px;align-items:center;min-height:48px'>"
                  "<input type='checkbox' name='pinned'> 置顶提醒</label>")
     return (f"<form method='post' action='{action}' enctype='multipart/form-data'>"
-            f"{child_radios}"
+            f"{child_radios}<div class='manual-fields'><div class='entry-wide'>"
             "<label class='form-field' for='entry-title'>标题</label>"
             "<input id='entry-title' name='title' placeholder='例如：数学练习册第 10 页' aria-describedby='title-hint'>"
-            "<p id='title-hint' class='form-note'>可留空，自动使用文件名或正文首行。</p>"
-            f"<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>学科</legend><div class='chips'>{subj_chips}</div></fieldset>"
-            f"<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>类型</legend><div class='chips'>{kind_chips}</div></fieldset>"
+            "<p id='title-hint' class='form-note'>可留空，自动使用文件名或正文首行。</p></div><div>"
+            f"<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>学科</legend><div class='chips'>{subj_chips}</div></fieldset></div><div>"
+            f"<fieldset style='border:0;padding:0;margin:0'><legend class='form-field'>类型</legend><div class='chips'>{kind_chips}</div></fieldset></div><div class='entry-wide'>"
             "<label class='form-field' for='entry-body'>文字内容</label>"
-            "<textarea id='entry-body' name='body' rows='4' placeholder='通知正文、作业要求…'></textarea>"
-            "<label class='form-field' for='entry-due'>截止日期（可选）</label><input id='entry-due' type='date' name='due'>"
+            "<textarea id='entry-body' name='body' rows='4' placeholder='通知正文、作业要求…'></textarea></div><div>"
+            "<label class='form-field' for='entry-due'>截止日期（可选）</label><input id='entry-due' type='date' name='due'></div><div>"
             "<label class='form-field' for='entry-file'>附件（可选）</label>"
             "<input id='entry-file' type='file' name='file' aria-describedby='file-hint'>"
-            "<p id='file-hint' class='form-note'>PDF / 图片 / MP3，最大 50MB，保留中文文件名。</p>"
+            "<p id='file-hint' class='form-note'>PDF / 图片 / MP3，最大 50MB，保留中文文件名。</p></div></div>"
             "<details class='advanced-fields'><summary>更多选项：原链接、定时显示、置顶</summary>"
             "<label class='form-field' for='entry-link'>原链接</label><input id='entry-link' name='link_url' type='url' placeholder='https://…'>"
-            f"{extra}</details><button class='full'>登记</button></form>")
+            f"{extra}</details><button class='full entry-submit'>登记到当前孩子的本子</button></form>")
 
 
 def kid_page(params):
@@ -829,7 +845,7 @@ def kid_page(params):
         pane = ("<h2>全部待办</h2><p class='muted'>按截止日期排序，未设日期排在最后。</p>"
                 + "".join(compact_row(i, child, show_subject=True) for i in stats["pending"])
                 + ("<p class='muted'>没有待完成作业。</p>" if not stats["pending"] else ""))
-        return page("待办 - 作业板", context + binder_wrap(tabs, pane))
+        return contextual_page("待办 - 作业板", context + binder_wrap(tabs, pane), child)
     if subject:
         shown = [i for i in items if i["subject"] == subject]
         shown.sort(key=lambda i: (0 if i["kind"] == "homework" and not i["done"] else 1,
@@ -850,7 +866,7 @@ def kid_page(params):
                 f"<input type='hidden' name='view' value='{esc(view)}'>"
                 f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
         body = context + binder_wrap(tabs, pane, opening=True)
-        return page(f"{subject} - 作业板", body)
+        return contextual_page(f"{subject} - 作业板", body, child)
     pins = [i for i in items if i["kind"] == "announcement" and i["pinned"]][:2]
     # 封面页：少量待办、提醒、各科计数，不把所有作业堆在首页。
     if q:
@@ -859,7 +875,7 @@ def kid_page(params):
                 (empty_state(f"没搜到“{q}”，换个词试试，或者去登记一条。",
                              "<p><a class='back' href='/'>← 回首页</a></p>") if not shown else ""))
         body = context + binder_wrap(tabs, pane, opening=True)
-        return page("作业板", body)
+        return contextual_page("作业板", body, child)
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
     if len(children) > 1 and not child and not subject:
         return page("选本子 - 作业板", notebook_covers(children, visible_items(all_items())))
@@ -896,20 +912,20 @@ def kid_page(params):
              f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>"
              + timer_details())
     body = context + binder_wrap(tabs, pane, opening=True)
-    return page("作业板", body)
+    return contextual_page("作业板", body, child)
 
 
-def register_page(msg="", preselect_subject="", preselect_child=0):
+def register_page(msg="", preselect_subject="", preselect_child=None):
     subjects, children = get_subjects(), get_children()
     api_help = """<details class='card'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>curl / iPhone 捷径上传（点开看）</summary>
 <p class='muted'>下面把 HOST 换成这台服务器的地址，例如 HOST:8765（换成你这台服务器的地址）。</p>
 <pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'># 取孩子和学科列表（给捷径做下拉）：GET http://HOST/api/lists
-# 返回 {"children": [{"id": 0, "name": "全部"}, ...], "subjects": ["语文", ...]}
+# 返回 {"children": [{"id": 1, "name": "孩子名字"}, ...], "subjects": ["语文", ...]}
 # 传一个文件，标题不填就用文件名；kind 不填时音频自动是听力、PDF 自动是学习资料
-curl -F "file=@/path/数学练习.pdf" -F "subject=数学" http://HOST/api/items
+curl -F "file=@/path/数学练习.pdf" -F "subject=数学" -F "child_id=1" http://HOST/api/items
 
 # 只传文字 / 链接
-curl -d "title=本周通知&subject=语文&body=周五听写" http://HOST/api/items</pre>
+curl -d "title=本周通知&subject=语文&body=周五听写&child_id=1" http://HOST/api/items</pre>
 <p>iPhone 捷径做法：分享菜单 → 新建捷径 → 接收“文件/图像/PDF”→
 先“获取 URL 内容” GET http://HOST/api/lists，取字典里的 subjects 和 children
 各做一个“从列表中选取”（孩子选 id、学科选名字），再“获取 URL 内容”选 POST、
@@ -921,16 +937,28 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
 或都连着 Tailscale。</p>
 <p class='muted'>这个接口只在局域网 / Tailscale 内可信，没有对外公开；
 如需加口令，部署时设 API_TOKEN，请求再带 X-API-Token 头。</p></details>"""
+    if not children:
+        return page("登记 - 作业板", "<h1>先添加孩子</h1><p>每条新内容都需要归属到具体孩子。</p><a class='back' href='/admin/children'>去管理添加孩子</a>")
+    if preselect_child is None or preselect_child == 0:
+        if len(children) == 1:
+            preselect_child = children[0]["id"]
+        else:
+            links = "".join(f"<a class='back' href='/register?child={c['id']}&subject={quote(preselect_subject)}'>给{esc(c['name'])}登记</a> " for c in children)
+            return page("选择登记对象 - 作业板", "<h1>给哪个孩子登记？</h1><p>从孩子的本子进入会自动沿用，无需重复选择。</p>" + links)
     if not any(c["id"] == preselect_child for c in children):
-        preselect_child = children[0]["id"] if len(children) == 1 else 0
+        return error_page("登记对象已失效", "这个孩子可能已被删除，或链接不正确。请回首页重新选择本子，再登记。")
+    context_options = "".join(f"<option value='{c['id']}' {'selected' if c['id'] == preselect_child else ''}>{esc(c['name'])}</option>" for c in children)
+    context_html = ("<div class='card' id='registration-context' hidden><div class='context-copy'><label for='entry-child'>本次登记给</label>"
+                    f"<select id='entry-child' aria-label='本次登记的孩子'>{context_options}</select></div>"
+                    "<p class='form-note'>各录入方式自动沿用，不用重复姓名。切换只影响新内容；已有草稿可逐条改归属。</p></div>")
     message_html = f"<p role='status'>{esc(msg)}</p>" if msg else ""
-    body = ("<header class='entry-header'><h1>登记一条新内容</h1>"
-            "<p class='muted'>可信家庭网络内使用，无需登录。选择手动填写，或先识别再核对。</p></header>"
-            + message_html +
+    body = ("<link rel='stylesheet' href='/static/entry.css'><div id='registration'><header class='entry-header'><h1>把今天的作业记下来</h1>"
+            "<p class='muted'>手动记一条，或说一段、拍张照，核对后再创建。</p></header>"
+            + message_html + context_html +
             "<div class='entry-switch' hidden aria-label='登记方式'>"
             "<button type='button' data-entry='manual' aria-controls='manual-entry' aria-pressed='true'>手动登记</button>"
-            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='false'>文字 / 拍照识别</button></div>"
-            "<section id='manual-entry' class='entry-section card'><h2>手动登记</h2>"
+            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='false'>文字 / 拍照 / 语音</button></div>"
+            "<section id='manual-entry' class='entry-section card'><p class='entry-step'>填写内容</p><h2>手动登记</h2>"
             + add_form(subjects, children, "/add", preselect_subject, preselect_child) + "</section>"
             + "<section id='ai-entry' class='entry-section'>" + ai_entry_html(subjects, children) + "</section>"
             + api_help +
@@ -939,7 +967,28 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
             "function show(mode){document.getElementById('manual-entry').hidden=mode!=='manual';document.getElementById('ai-entry').hidden=mode!=='ai';"
             "buttons.forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.entry===mode));});}"
             "document.querySelector('.entry-switch').hidden=false;buttons.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.entry);});});show('manual');})();</script>")
-    return page("登记 - 作业板", body)
+    body += """<script>(function(){
+var context=document.getElementById('entry-child');
+var radios=document.querySelectorAll('#manual-entry input[name="child_id"]');
+if(radios.length) radios[0].closest('fieldset').hidden=true;
+document.getElementById('registration-context').hidden=false;
+context.addEventListener('change',function(){
+  radios.forEach(function(r){r.checked=r.value===context.value;});
+  var url=new URL(location.href);url.searchParams.set('child',context.value);history.replaceState(null,'',url);
+  document.querySelectorAll('a[href^="/register"]').forEach(function(a){a.href='/register?child='+context.value;});
+});
+if(window.visualViewport){
+  var fullHeight=window.innerHeight;
+  function keyboard(){
+    var editing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    document.body.classList.toggle('entry-keyboard',editing && window.visualViewport.height < fullHeight-120);
+  }
+  visualViewport.addEventListener('resize',keyboard);
+  document.addEventListener('focusin',keyboard);document.addEventListener('focusout',keyboard);
+}
+})();</script>"""
+    body += "</div>"
+    return contextual_page("登记 - 作业板", body, preselect_child)
 
 
 def admin_top(back_href, back_text):
@@ -1149,7 +1198,7 @@ def validate_draft(raw, subjects, children, default_child=0):
             "due": due, "body": (raw.get("body") or "").strip()}
 
 
-def call_llm_parse(text, image_bytes, image_ctype):
+def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
     """调 OpenAI 兼容的聊天接口做解析；没配 key 就明确返回未配置，不假装解析成功。"""
     import base64
     import urllib.error
@@ -1160,10 +1209,14 @@ def call_llm_parse(text, image_bytes, image_ctype):
     system = ("你是作业登记解析器，只输出 JSON 数组，不要输出任何其他文字或 Markdown。"
               "每项字段：title（标题）、subject（学科，必须是下面列表里的原样字符串，对不上就留空）、"
               "kind（notice/homework/material/answer/listening/announcement，对不上就留空）、"
-              "child_id（孩子 id，对不上就留 0）、due（YYYY-MM-DD，没有明确日期就留空）、body（正文）。"
+              "child_id（页面选定的孩子 id）、due（YYYY-MM-DD，没有明确日期就留空）、body（正文）。"
               f"今天是 {today()}，相对日期（明天、下周五等）要换算成绝对日期。"
               f"学科列表：{json.dumps(get_subjects(), ensure_ascii=False)}。"
               f"孩子列表：{json.dumps(get_children(), ensure_ascii=False)}。")
+    if default_child is not None:
+        target = child_name(get_children(), default_child) if default_child else "共享"
+        system += (f"本次登记对象已由用户在页面选定：{target}（child_id={default_child}）。"
+                   "所有草稿都使用此 child_id，不根据正文姓名猜测或改变归属，用户会在核对页自行修改。")
     if image_bytes:
         mime = image_ctype if (image_ctype or "").startswith("image/") else "image/jpeg"
         b64 = base64.b64encode(image_bytes).decode()
@@ -1182,8 +1235,8 @@ def call_llm_parse(text, image_bytes, image_ctype):
             data = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         return False, "llm_error", f"模型接口返回 {e.code}，检查 LLM_BASE_URL / LLM_MODEL / key 是否正确。"
-    except Exception as e:
-        return False, "llm_error", f"调模型失败：{e}"
+    except Exception:
+        return False, "llm_error", "模型服务连接失败，请检查配置或改用粘贴 JSON。"
     try:
         content_out = data["choices"][0]["message"]["content"]
     except Exception:
@@ -1196,8 +1249,49 @@ def call_llm_parse(text, image_bytes, image_ctype):
     if not isinstance(raw_list, list):
         return False, "llm_bad_json", "模型返回的不是数组，重试一次或改用粘贴 JSON。"
     subjects, children = get_subjects(), get_children()
-    drafts = [validate_draft(r, subjects, children, 0) for r in raw_list]
+    drafts = [validate_draft(r, subjects, children, default_child or 0) for r in raw_list]
+    if default_child is not None:
+        for draft in drafts:
+            draft["child_id"] = default_child
     return True, "", drafts
+
+
+def call_speech_transcribe(audio_bytes, audio_ctype):
+    """OpenAI-compatible multipart transcription, in memory; never store raw recordings."""
+    import urllib.error
+    import urllib.request
+    if not STT_API_KEY:
+        return False, "stt_not_configured", "未配置 STT_API_KEY，请先配置语音服务，或改用文字 / 照片。"
+    mime = (audio_ctype or "").split(";", 1)[0].strip().lower()
+    if mime not in AUDIO_TYPES:
+        return False, "unsupported_audio", "不支持这种音频格式，请使用 WebM、MP4/M4A、WAV、MP3 或 Ogg。"
+    if not audio_bytes:
+        return False, "empty_audio", "没有录到声音，请重新录音。"
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        return False, "audio_too_large", "音频最大 10MB，请缩短录音。"
+    boundary = "SchoolBoardSpeech" + secrets.token_hex(16)
+    parts = []
+    for name, value in (("model", STT_MODEL), ("response_format", "json")):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+    parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+                  f'filename="recording.{AUDIO_TYPES[mime]}"\r\nContent-Type: {mime}\r\n\r\n').encode())
+    parts.extend([audio_bytes, f'\r\n--{boundary}--\r\n'.encode()])
+    req = urllib.request.Request(STT_BASE_URL.rstrip("/") + "/audio/transcriptions",
+                                 data=b"".join(parts), method="POST")
+    req.add_header("Authorization", "Bearer " + STT_API_KEY)
+    req.add_header("Content-Type", "multipart/form-data; boundary=" + boundary)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return False, "stt_error", f"语音服务返回 {e.code}，请检查 STT 配置及音频格式支持。"
+    except Exception:
+        # Do not echo upstream response bodies, URLs or credentials into the page.
+        return False, "stt_error", "语音服务连接失败或返回无效数据，请重试或改用文字。"
+    text = result.get("text") if isinstance(result, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return False, "empty_transcript", "未识别到文字，请靠近麦克风重新录音，或改用文字。"
+    return True, "", text.strip()
 
 
 def ai_entry_html(subjects, children):
@@ -1209,14 +1303,14 @@ var kinds = [['notice','通知'],['homework','作业'],['material','学习资料
 function mk(tag, text) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; return e; }
 function sel(options, value) { var s = mk('select'); options.forEach(function(o) { var op = mk('option', o[1]); op.value = o[0]; if (String(o[0]) === String(value)) op.selected = true; s.appendChild(op); }); return s; }
 function renderDrafts(drafts) {
-  var box = document.getElementById('ai-drafts'); box.innerHTML = '';
+  var box = document.getElementById('ai-drafts'); if (!arguments[1]) box.innerHTML = '';
   drafts.forEach(function(d) {
     var card = mk('div'); card.className = 'card draft-card'; card.style.margin = '12px 0';
     var chk = mk('input'); chk.type = 'checkbox'; chk.checked = true; chk.style.width = '22px'; chk.style.height = '22px';
     var title = mk('input'); title.value = d.title || ''; title.placeholder = '标题';
     var subj = sel([['','学科（必选）']].concat(lists.subjects.map(function(s) { return [s, s]; })), d.subject || '');
     var kind = sel([['','类型（可选）']].concat(kinds), d.kind || '');
-    var child = sel([['0','共享']].concat(lists.children.map(function(c) { return [String(c.id), c.name]; })), d.child_id || 0);
+    var child = sel([['','请选择孩子']].concat(lists.children.map(function(c) { return [String(c.id), c.name]; })), d.child_id || '');
     var due = mk('input'); due.type = 'date'; due.value = d.due || '';
     var body = mk('textarea'); body.value = d.body || ''; body.placeholder = '正文';
     var del = mk('button'); del.className = 'danger small'; del.textContent = '删这条草稿'; del.type = 'button';
@@ -1231,17 +1325,21 @@ function renderDrafts(drafts) {
   });
   document.getElementById('ai-status').textContent = drafts.length ? ('已生成 ' + drafts.length + ' 条草稿，核对后点批量创建。') : '没有生成草稿。';
 }
+// Voice and text share the same draft renderer, but voice never discards existing drafts.
+window.sbVoiceDrafts = function(drafts) { renderDrafts(drafts, true); };
 document.getElementById('ai-parse-btn').onclick = async function() {
   var btn = this; var st = document.getElementById('ai-status'); var fd = new FormData();
   fd.append('text', document.getElementById('ai-text').value);
+  fd.append('child_id', document.getElementById('entry-child').value);
   var f = document.getElementById('ai-image').files[0]; if (f) fd.append('image', f);
   if (!document.getElementById('ai-text').value.trim() && !f) { st.textContent = '先写一句话或拍一张图。'; return; }
+  var context = document.getElementById('entry-child'); context.disabled = true;
   btn.disabled = true; st.textContent = '解析中…';
   try {
     var r = await fetch('/api/ai-parse', {method: 'POST', body: fd}); var j = await r.json();
     if (j.ok) renderDrafts(j.drafts); else st.textContent = j.message || ('解析失败：' + (j.error || r.status));
   } catch (e) { st.textContent = '解析失败：' + e; }
-  btn.disabled = false;
+  btn.disabled = false; context.disabled = false;
 };
 document.getElementById('ai-json-btn').onclick = function() {
   var st = document.getElementById('ai-status');
@@ -1249,11 +1347,10 @@ document.getElementById('ai-json-btn').onclick = function() {
     var v = JSON.parse(document.getElementById('ai-json').value);
     var arr = Array.isArray(v) ? v : (v.drafts || []);
     if (!arr.length) { st.textContent = 'JSON 里没有数组或 drafts。'; return; }
-    var subjects = lists.subjects, children = lists.children;
+    var subjects = lists.subjects;
     var drafts = arr.map(function(d) {
       var subj = subjects.indexOf(d.subject) >= 0 ? d.subject : '';
-      var cid = 0; if (d.child_id) { var n = parseInt(d.child_id, 10); if (!isNaN(n)) cid = n; }
-      if (d.child_name) { children.forEach(function(c) { if (c.name === d.child_name) cid = c.id; }); }
+      var cid = parseInt(document.getElementById('entry-child').value, 10);
       return {title: d.title || '', subject: subj, kind: d.kind || '', child_id: cid, due: /^\d{4}-\d{2}-\d{2}$/.test(d.due || '') ? d.due : '', body: d.body || ''};
     });
     renderDrafts(drafts);
@@ -1287,20 +1384,37 @@ document.getElementById('ai-create-btn').onclick = async function() {
     configured = bool(LLM_API_KEY)
     model_note = ("文字或照片会发给已配置的模型服务商，可能产生 API 费用。" if configured
                   else "尚未配置模型，文字 / 拍照识别不可用。可展开下方入口粘贴 JSON，生成草稿后核对。")
-    html = ("<div class='card'><h2>识别 → 核对草稿 → 创建</h2>"
-            "<p class='muted'>写一句话或拍一张作业单，AI 先拆成草稿，你逐条核对后再批量创建；草稿确认前不入库。"
-            "</p>" + f"<p class='form-note'>{model_note}</p>"
-            "<label class='form-field' for='ai-text'>要识别的文字</label><textarea id='ai-text' placeholder='例如：小明明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
+    voice_configured = configured and bool(STT_API_KEY)
+    voice_note = ("录音提交后，音频会经服务器发送给已配置的语音服务商，转写文字再交给 AI 模型；两步可能分别计费。录音不保存到作业本，服务商的保留政策由其规定。"
+                  if voice_configured else "语音需同时配置 STT_API_KEY 和 LLM_API_KEY；未配置时仍可手动登记或粘贴 JSON。")
+    voice_html = ("<fieldset id='voice-entry' style='margin:16px 0;padding:12px;border:1px solid #d7dce5;border-radius:12px'>"
+                  "<legend>说一段，自动拆成作业</legend><p class='form-note'>不用重复孩子姓名，说清学科和作业要求即可。</p>"
+                  f"<div id='voice-controls' data-configured='{str(voice_configured).lower()}'>"
+                  f"<button type='button' id='voice-start' {'disabled' if not voice_configured else ''} aria-describedby='voice-privacy voice-status'>开始录音</button> "
+                  "<button type='button' id='voice-submit' hidden>提交语音并解析</button> "
+                  "<button type='button' id='voice-cancel' hidden>取消录音</button></div>"
+                  "<p id='voice-status' class='muted' role='status' aria-live='polite'>每次最多录音 2 分钟；提交后自动生成待核对草稿，不会直接创建作业。</p>"
+                  "<label class='form-field' for='voice-file'>或选择录音文件（最大 10MB，选择后自动解析）</label>"
+                  f"<input id='voice-file' type='file' accept='audio/webm,audio/mp4,audio/m4a,audio/x-m4a,audio/mpeg,audio/wav,audio/x-wav,audio/ogg' {'disabled' if not voice_configured else ''}>"
+                  "<p class='form-note'>提交会发送给所配置的语音及 AI 服务，可能分别计费。</p>"
+                  "<details><summary>语音隐私与费用说明</summary><p id='voice-privacy'>" + voice_note + "</p></details></fieldset>")
+    html = ("<div class='ai-input-card'><p class='entry-step'>1 / 录入内容</p><h2>先识别，再核对</h2>"
+            "<p class='muted'>语音提交后直接生成草稿，不必再点识别。确认之前不会创建作业。</p>"
+            "<div class='ai-input-grid'>" + voice_html +
+            "<div><label class='form-field' for='ai-text'>或写一句、拍张照</label><textarea id='ai-text' placeholder='例如：明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
             "<label class='form-field' for='ai-image'>照片（可选，最大 10MB）</label><input id='ai-image' type='file' accept='image/*' aria-label='拍照或选图'>"
-            f"<button id='ai-parse-btn' type='button' {'disabled' if not configured else ''}>识别成草稿</button>"
+            f"<p class='form-note'>{model_note}</p>"
+            f"<button id='ai-parse-btn' type='button' {'disabled' if not configured else ''}>识别文字 / 照片</button></div></div></div>"
+            "<div class='ai-review'><p class='entry-step'>2 / 核对后创建</p><h2>核对作业草稿</h2>"
+            "<p class='muted'>检查孩子、学科和截止日期；不需要的草稿可取消勾选。</p>"
             "<p id='ai-status' class='muted' role='status' aria-live='polite'></p>"
             "<div id='ai-drafts'></div>"
-            "<button id='ai-create-btn' type='button'>批量创建已勾选</button>"
-            "<details style='margin-top:12px'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>粘贴 AI 结果 JSON（免费路径，点开看）</summary>"
+            "<button id='ai-create-btn' type='button'>确认并创建已勾选作业</button></div>"
+            "<details class='entry-tools'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>粘贴 AI 结果 JSON（免费路径，点开看）</summary>"
             "<label class='form-field' for='ai-json'>JSON 草稿数组</label><textarea id='ai-json' placeholder='[{\"title\":\"数学练习册第10页\",\"subject\":\"数学\",\"kind\":\"homework\",\"child_id\":1,\"due\":\"2026-10-28\",\"body\":\"\"}]'></textarea>"
             "<button id='ai-json-btn' type='button'>用粘贴的 JSON 生成草稿</button></details>"
             "<script type='application/json' id='sb-lists'>__LISTS_JSON__</script>"
-            "<script>" + js + "</script></div>")
+            "<script>" + js + "</script><script src='/static/voice.js'></script>")
     return html.replace("__LISTS_JSON__", lists_json)
 
 
@@ -1337,7 +1451,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         params = parse_qs(u.query)
-        if u.path in ("/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
+        if u.path in ("/static/entry.css", "/static/voice.js", "/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
             ctype = {"json": "application/manifest+json", "js": "application/javascript",
                      "svg": "image/svg+xml", "png": "image/png", "mjs": "application/javascript", "css": "text/css"}.get(u.path.rsplit(".", 1)[-1], "image/png")
             try:
@@ -1363,8 +1477,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(kid_page(params))
             return
         if u.path == "/register":
-            self.send_html(register_page("", params.get("subject", [""])[0],
-                                         int(params.get("child", ["0"])[0] or 0) if params.get("child", ["0"])[0].isdigit() else 0))
+            raw_child = params.get("child", [None])[0]
+            child = None if raw_child is None else (int(raw_child) if raw_child.isdigit() else -1)
+            self.send_html(register_page("", params.get("subject", [""])[0], child))
             return
         if u.path == "/api/lists":
             if has_any_api_token():
@@ -1373,7 +1488,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"ok": False, "error": "unauthorized"}, 401)
                     return
             self.send_json({"ok": True,
-                            "children": [{"id": 0, "name": "全部"}] + [{"id": c["id"], "name": c["name"]} for c in get_children()],
+                            "children": [{"id": c["id"], "name": c["name"]} for c in get_children()],
                             "subjects": get_subjects()})
             return
         if u.path == "/api":
@@ -1381,8 +1496,9 @@ class Handler(BaseHTTPRequestHandler):
                             "lists": "/api/lists",
                             "ai_parse": "/api/ai-parse (LAN only, not via Caddy)",
                             "ai_batch": "/api/ai-batch (LAN only, not via Caddy)",
+                            "ai_voice": "/api/ai-voice (LAN only, child_id + audio multipart, no auto-create)",
                             "fields": "title(可选，不填用文件名), subject, subject_new, kind(不填时：音频->听力，PDF->学习资料，其余->通知), body, link_url, due, visible_at, pinned, child_id",
-                            "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" http://HOST:8765/api/items"})
+                            "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" -F \"child_id=1\" http://HOST:8765/api/items"})
             return
         if u.path == "/api/items":
             if has_any_api_token():
@@ -1419,7 +1535,7 @@ class Handler(BaseHTTPRequestHandler):
                 child = 0
             back = (f"<p><a class='back' href='/{qs(child, subject=it['subject'])}'>"
                     f"← 回{esc(it['subject'])}</a></p>")
-            self.send_html(page(it["title"], back + item_card(it, get_children(), detail=True, child=child)))
+            self.send_html(contextual_page(it["title"], back + item_card(it, get_children(), detail=True, child=child), child))
             return
         if u.path == "/admin":
             if not is_admin(self):
@@ -1532,6 +1648,13 @@ class Handler(BaseHTTPRequestHandler):
         self.redirect(redirect_to)
         return item_id, title
 
+    def valid_entry_child(self, fields):
+        try:
+            child = int(fields.get("child_id") or fields.get("child") or 0)
+        except (TypeError, ValueError):
+            return False
+        return any(c["id"] == child for c in get_children())
+
     def do_POST(self):
         u = urlparse(self.path)
         # 文件过大先拦住，不生成一条空内容：这是出错态，不是静默成功。
@@ -1545,6 +1668,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_html(error_page("文件太大了", "单个文件最大 50MB，请压缩或拆分后再登记。"), 413)
             return
+        if u.path == "/api/ai-voice" and clen > MAX_AUDIO_BYTES + 64 * 1024:
+            self.close_connection = True
+            self.send_json({"ok": False, "error": "audio_too_large", "message": "音频最大 10MB，请缩短录音。"}, 413)
+            return
         if u.path == "/api/items":
             if has_any_api_token():
                 token = self.headers.get("X-API-Token", "") or parse_qs(urlparse(self.path).query).get("token", [""])[0]
@@ -1552,6 +1679,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"ok": False, "error": "unauthorized"}, 401)
                     return
             fields, file_bytes, filename, file_ctype = self.read_form()
+            if not self.valid_entry_child(fields):
+                self.send_json({"ok": False, "error": "invalid_child", "message": "请选择有效的孩子；新登记不再支持共享。"}, 400)
+                return
             item_id, title = create_item(fields, file_bytes, filename, file_ctype)
             self.send_json({"ok": True, "id": item_id, "title": title, "url": f"/item?id={item_id}"}, 201)
             return
@@ -1568,6 +1698,9 @@ class Handler(BaseHTTPRequestHandler):
             created, failed = [], []
             for index, raw_draft in enumerate(drafts_in):
                 d = validate_draft(raw_draft, subjects, children, 0)
+                if not self.valid_entry_child(d):
+                    failed.append({"index": index, "draft": d, "error": "invalid_child", "message": "请选择有效的孩子；新登记不再支持共享。"})
+                    continue
                 if not d["subject"]:
                     failed.append({"index": index, "draft": d, "error": "subject required", "message": "请选择学科"})
                     continue
@@ -1578,6 +1711,34 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "created": created, "failed": failed})
             return
         fields, file_bytes, filename, file_ctype = self.read_form()
+        default_child = None
+        if u.path in ("/api/ai-voice", "/api/ai-parse"):
+            if not self.valid_entry_child(fields):
+                self.send_json({"ok": False, "error": "invalid_child", "message": "请选择有效的孩子，再解析作业。"}, 400)
+                return
+            try:
+                default_child = int(fields.get("child_id") or fields.get("child"))
+            except (ValueError, TypeError):
+                default_child = -1
+            if default_child != 0 and not any(c["id"] == default_child for c in get_children()):
+                self.send_json({"ok": False, "error": "invalid_child", "message": "登记对象已失效，请回首页重新选择本子。"}, 400)
+                return
+        if u.path == "/api/ai-voice":
+            if not LLM_API_KEY or not STT_API_KEY:
+                self.send_json({"ok": False, "error": "voice_not_configured",
+                                "message": "语音需配置 STT_API_KEY 和 LLM_API_KEY，请改用文字或手动登记。"}, 503)
+                return
+            ok, err, transcript = call_speech_transcribe(file_bytes, file_ctype)
+            if not ok:
+                status = 413 if err == "audio_too_large" else (400 if err in ("empty_audio", "unsupported_audio") else 502)
+                self.send_json({"ok": False, "error": err, "message": transcript}, status)
+                return
+            ok, err, result = call_llm_parse(transcript, None, "", default_child)
+            if not ok:
+                self.send_json({"ok": False, "error": err, "message": result, "transcript": transcript}, 502)
+                return
+            self.send_json({"ok": True, "transcript": transcript, "drafts": result})
+            return
         if u.path == "/api/ai-parse":
             text = (fields.get("text") or "").strip()
             if file_bytes and len(file_bytes) > 10 * 1024 * 1024:
@@ -1586,7 +1747,7 @@ class Handler(BaseHTTPRequestHandler):
             if not text and not file_bytes:
                 self.send_json({"ok": False, "error": "empty input"}, 400)
                 return
-            ok, err, result = call_llm_parse(text, file_bytes, file_ctype)
+            ok, err, result = call_llm_parse(text, file_bytes, file_ctype, default_child)
             if not ok:
                 self.send_json({"ok": False, "error": err, "message": result},
                                503 if err == "llm_not_configured" else 502)
@@ -1616,7 +1777,10 @@ class Handler(BaseHTTPRequestHandler):
             self.redirect("/admin", "admin=; Path=/; Max-Age=0")
             return
         if u.path in ("/add", "/admin/add"):
-            # 登记开放：谁都可以登记；管理页的登记表单也走同一口。
+            # 登记开放：谁都可以登记；但必须属于具体孩子。
+            if not self.valid_entry_child(fields):
+                self.send_html(error_page("请选择孩子", "登记对象缺失或已失效。未保存内容，请返回登记页选择有效孩子；不再支持新建共享内容。"), 400)
+                return
             item_id, title = create_item(fields, file_bytes, filename, file_ctype)
             try:
                 child = int(fields.get("child_id") or 0)

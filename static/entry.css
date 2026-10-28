@@ -1,0 +1,87 @@
+/* Registration only: touch-first, consistent with the board's paper/card palette. */
+#registration{max-width:960px;margin:auto;--entry-gap:16px}
+#registration .entry-header{margin:8px 0 16px}
+#registration .entry-header h1{font-size:28px;letter-spacing:-.6px}
+#registration .entry-header p{max-width:40em;color:#626b76;font-size:14px}
+#registration-context{display:flex;gap:18px;align-items:center;border-left:4px solid #2f66c4;padding:12px 18px}
+#registration-context .context-copy{flex:1;min-width:0}
+#registration-context label{display:block;font-size:13px;color:#59616c}
+#registration-context select{max-width:220px;margin:4px 0;font-weight:600;border-color:#b7c6db}
+#registration-context .form-note{margin:0;font-size:12px}
+#registration .entry-switch{margin:16px 0 20px;padding:5px;gap:4px}
+#registration .entry-switch button{gap:8px;line-height:1.35}
+#registration .entry-section.card{padding:24px}
+#registration .entry-section h2{font-size:21px;margin-bottom:14px}
+#registration .entry-step{font-size:12px;letter-spacing:.6px;color:#59616c;margin:0 0 5px}
+#registration fieldset{min-width:0}
+#registration .chips{gap:8px;margin:8px 0 20px}
+#registration .chip{min-height:48px;padding:8px 14px;gap:7px;cursor:pointer;user-select:none}
+#registration .chip:has(input:checked){background:#eef3fb;color:#244f94;border-color:#8ba8d3}
+#registration .chip input{margin:0;min-width:18px;min-height:18px}
+#registration .form-field{font-size:14px;font-weight:500;color:#3f4b5d;margin:14px 0 2px}
+#registration textarea{min-height:120px;resize:vertical}
+#registration input,#registration select,#registration textarea{scroll-margin-block:90px;min-width:0}
+#registration input:not([type=checkbox]):not([type=radio]),#registration select{min-height:50px}
+#registration input[type=file]{padding:8px;background:#f7f9fc;font-size:14px}
+#registration input[type=file]::file-selector-button{min-height:40px;border:0;border-radius:8px;background:#e6edf8;color:#244f94;margin-right:10px;padding:0 12px;font:inherit}
+#registration .manual-fields{display:grid;grid-template-columns:1fr;gap:0 20px}
+#registration .entry-wide{grid-column:1/-1;min-width:0}
+#registration .advanced-fields{border-top:1px solid #e7ebf1;padding-top:6px;margin:14px 0}
+#registration .advanced-fields summary{padding:8px 0}
+#registration .entry-submit{margin-top:18px;min-height:54px}
+#voice-entry{border:1px solid #c7d6ec!important;background:#f5f8fe;border-radius:16px!important;padding:18px!important;margin:16px 0 20px!important}
+#voice-entry legend{font-size:17px;font-weight:600;color:#244f94;padding:0 8px}
+#voice-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#voice-controls button{min-height:52px;flex:1;padding:10px 14px;line-height:1.4}
+#voice-start:before{content:'';width:10px;height:16px;border:2px solid currentColor;border-radius:8px;margin-right:10px;flex-shrink:0}
+#voice-cancel{background:#e8edf5;color:#3c4b60;flex:0 0 auto!important}
+#voice-controls[data-state=recording] #voice-submit{background:#a74443}
+#voice-controls[data-state=recording] #voice-submit:before{content:'';width:10px;height:10px;border-radius:50%;background:currentColor;margin-right:8px}
+#voice-status{margin:10px 0;min-height:44px;display:flex;align-items:center;font-size:13px;color:#405570;line-height:1.6;font-variant-numeric:tabular-nums}
+#voice-entry .voice-file-label{min-height:44px;display:flex;align-items:center;font-size:13px}
+#voice-entry .voice-file-label input{max-width:100%;margin-top:4px}
+#voice-entry details{font-size:12px;color:#59616c;margin-top:10px}
+#voice-entry summary{min-height:44px;cursor:pointer;display:flex;align-items:center;color:#2f66c4}
+#registration .ai-input-card,#registration .ai-review{background:#fff;border:1px solid #e1e6ed;border-radius:20px;padding:24px;margin:16px 0}
+#registration .ai-input-card>h2{margin-bottom:6px}
+#registration #ai-parse-btn{width:100%;margin-top:12px}
+#registration .ai-review{scroll-margin-top:16px}
+#ai-status{min-height:24px;margin:8px 0}
+#ai-drafts{display:grid;gap:14px}
+#registration .draft-card{margin:0!important;box-shadow:none;display:grid;grid-template-columns:1fr;gap:0 16px;padding:18px;border-radius:14px}
+#registration .draft-card label:first-child{display:flex;align-items:center;gap:10px;min-height:48px;font-size:16px;color:#244f94;font-weight:600}
+#registration .draft-card label:first-child input{width:22px;flex-shrink:0;margin:0}
+#registration .draft-card label{min-width:0}
+#registration .draft-card textarea{min-height:85px}
+#registration .draft-card .danger{background:#fff0ef;color:#9b3c39;justify-self:start;min-height:48px}
+#registration .ai-review #ai-create-btn{width:100%;min-height:54px;margin-top:18px}
+#registration .ai-review:has(#ai-drafts:empty)>:not(#ai-status){display:none}
+#registration .ai-review:has(#ai-drafts:empty){padding:0;border:0;background:transparent}
+#registration .ai-review:has(#ai-drafts:empty) #ai-status:empty{display:none}
+#registration .entry-tools{margin:20px 0;font-size:13px}
+#registration .entry-tools>summary{min-height:48px;cursor:pointer;color:#2f66c4;display:flex;align-items:center}
+#registration .entry-tools textarea{font-size:14px}
+body.entry-keyboard .bottomnav{display:none}
+body.entry-keyboard #registration input,body.entry-keyboard #registration textarea{scroll-margin-bottom:28px}
+@media(min-width:760px){
+ #registration .manual-fields{grid-template-columns:1fr 1fr}
+ #registration .draft-card{grid-template-columns:1fr 1fr}
+ #registration .draft-card label:first-child,#registration .draft-card label:nth-child(2),#registration .draft-card label:nth-child(7),#registration .draft-card .draft-error{grid-column:1/-1}
+ #registration .ai-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+ #registration .ai-input-grid>#voice-entry{margin-top:8px!important}
+}
+@media(max-width:600px){
+ #registration .entry-header h1{font-size:25px}
+ #registration-context{display:block;padding:12px 14px;margin:12px 0}
+ #registration-context .context-copy{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+ #registration-context select{flex:1;max-width:none;width:0;margin:0}
+ #registration-context .form-note{font-size:12px;line-height:1.6}
+ #registration .entry-section.card,#registration .ai-input-card,#registration .ai-review{padding:16px;border-radius:18px}
+ #registration .entry-switch{margin:12px 0}
+ #registration .entry-switch button{min-height:50px;padding:0 10px;font-size:15px}
+ #registration .chips{gap:7px}
+ #registration .chip{padding:8px 12px;font-size:15px;flex-grow:1;justify-content:center}
+ #registration .draft-card{padding:14px}
+ #voice-entry{padding:14px!important}
+}
+@media(prefers-reduced-motion:reduce){#registration *{scroll-behavior:auto!important}}

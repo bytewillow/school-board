@@ -55,7 +55,9 @@ class BoardTests(unittest.TestCase):
         return item_id
 
     def test_static_media_allowlist(self):
-        for path, mime in [('/static/media.js', 'application/javascript'),
+        for path, mime in [('/static/voice.js', 'application/javascript'),
+                           ('/static/entry.css', 'text/css'),
+                           ('/static/media.js', 'application/javascript'),
                            ('/static/media.css', 'text/css'),
                            ('/static/pdfjs/pdf.mjs', 'application/javascript'),
                            ('/static/pdfjs/pdf.worker.mjs', 'application/javascript')]:
@@ -201,7 +203,7 @@ class BoardTests(unittest.TestCase):
                 self.assertEqual(self.request(path, headers={'X-API-Token': 'bad'})[0], 401)
                 self.assertEqual(self.request(path, headers={'X-API-Token': app.API_TOKEN})[0], 200)
             self.assertEqual(self.request('/api/items', 'POST', 'title=blocked', {'Content-Type': 'application/x-www-form-urlencoded'})[0], 401)
-            self.assertEqual(self.request('/api/items', 'POST', 'title=allowed', {'Content-Type': 'application/x-www-form-urlencoded', 'X-API-Token': app.API_TOKEN})[0], 201)
+            self.assertEqual(self.request('/api/items', 'POST', 'title=allowed&child_id=1', {'Content-Type': 'application/x-www-form-urlencoded', 'X-API-Token': app.API_TOKEN})[0], 201)
             # The website is still trusted-LAN, not made private by an API token.
             self.assertEqual(self.request('/')[0], 200)
 
@@ -225,7 +227,7 @@ class BoardTests(unittest.TestCase):
         self.assertEqual({i['title'] for i in json.loads(body)['items']}, {'shared', 'own'})
 
     def test_batch_partial_results_have_request_indexes(self):
-        drafts = [{'title': 'good', 'subject': '数学'}, {'title': 'bad', 'subject': ''}, {'title': 'also good', 'subject': '语文'}]
+        drafts = [{'title': 'good', 'subject': '数学', 'child_id': 1}, {'title': 'bad', 'subject': '', 'child_id': 1}, {'title': 'also good', 'subject': '语文', 'child_id': 2}]
         status, body = self.request('/api/ai-batch', 'POST', json.dumps({'drafts': drafts}), {'Content-Type': 'application/json'})
         self.assertEqual(status, 200)
         result = json.loads(body)
@@ -238,7 +240,7 @@ class BoardTests(unittest.TestCase):
         with app.db() as conn:
             conn.execute('UPDATE children SET name=? WHERE id=2', ('</script><script>unsafe()</script>',))
         _, body = self.request('/register?child=1')
-        self.assertIn("name='child_id' value='1' checked", body)
+        self.assertIn("name='child_id' required value='1' checked", body)
         self.assertIn('尚未配置模型', body)
         self.assertNotIn('</script><script>unsafe()', body)
         self.assertIn('\\u003c/script>', body)
@@ -250,8 +252,121 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertEqual(len(app.all_items()), 1)
         self.assertFalse(app.visible_items(app.all_items()))
-        status, _ = self.request('/api/ai-parse', 'POST', 'text=example', {'Content-Type': 'application/x-www-form-urlencoded'})
+        status, _ = self.request('/api/ai-parse', 'POST', 'text=example&child_id=1', {'Content-Type': 'application/x-www-form-urlencoded'})
         self.assertEqual(status, 503)
+
+
+    def multipart(self, fields, audio=b'fake-audio', mime='audio/webm'):
+        boundary = 'VoiceTestBoundary'
+        body = b''
+        for key, value in fields.items():
+            body += f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
+        body += f'--{boundary}\r\nContent-Disposition: form-data; name="audio"; filename="test.webm"\r\nContent-Type: {mime}\r\n\r\n'.encode() + audio
+        body += f'\r\n--{boundary}--\r\n'.encode()
+        return body, {'Content-Type': f'multipart/form-data; boundary={boundary}'}
+
+    def test_registration_context_and_no_shared_creation_option(self):
+        _, global_page = self.request('/register')
+        self.assertIn('给哪个孩子登记', global_page)
+        self.assertNotIn("id='voice-start'", global_page)
+        for cid in (1, 2):
+            _, body = self.request(f'/register?child={cid}')
+            self.assertIn(f"<option value='{cid}' selected>", body)
+            self.assertNotIn("value='0'", body)
+            self.assertNotIn("['0','共享']", body)
+            _, notebook = self.request(f'/?child={cid}')
+            self.assertIn(f"href='/register?child={cid}'", notebook)
+            self.assertNotIn("href='/register'", notebook)
+        for raw in ('999', 'bad', '-1'):
+            self.assertIn('登记对象已失效', self.request('/register?child='+raw)[1])
+        with app.db() as conn:
+            conn.execute('DELETE FROM children WHERE id=2')
+        self.assertIn("<option value='1' selected>", self.request('/register')[1])
+        with app.db() as conn:
+            conn.execute('DELETE FROM children')
+        self.assertIn('先添加孩子', self.request('/register')[1])
+
+    def test_new_entries_reject_missing_zero_and_invalid_child(self):
+        for child in ('', '0', '999', 'bad'):
+            for path in ('/api/items', '/add'):
+                status, _ = self.request(path, 'POST', f'title=bad&child_id={child}', {'Content-Type':'application/x-www-form-urlencoded'})
+                self.assertEqual(status, 400)
+            status, body = self.request('/api/ai-batch', 'POST', json.dumps({'drafts':[{'title':'bad','subject':'数学','child_id':child}]}), {'Content-Type':'application/json'})
+            self.assertFalse(json.loads(body)['created'])
+        self.assertEqual(app.all_items(), [])
+        children = json.loads(self.request('/api/lists')[1])['children']
+        self.assertEqual([c['id'] for c in children], [1,2])
+        # A pre-upgrade shared record stays intact, visible in both books, no migration.
+        item = self.item('历史共享', child=0)
+        app.init_db()
+        self.assertEqual(app.get_item(item)['child_id'], 0)
+        for cid in (1,2):
+            self.assertIn('历史共享', self.request(f'/?child={cid}')[1])
+
+    def test_stt_multipart_and_errors_do_not_disclose_upstream(self):
+        from unittest.mock import MagicMock
+        import urllib.error
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({'text':' 明天数学第十页 '}).encode()
+        with patch.multiple(app, STT_API_KEY='fake-secret', STT_BASE_URL='https://speech.example/v1', STT_MODEL='test-stt'):
+            with patch('urllib.request.urlopen', return_value=response) as urlopen:
+                self.assertEqual(app.call_speech_transcribe(b'fake-audio', 'audio/mp4;codecs=aac'), (True, '', '明天数学第十页'))
+                request = urlopen.call_args.args[0]
+                self.assertEqual(request.full_url, 'https://speech.example/v1/audio/transcriptions')
+                self.assertEqual(request.get_header('Authorization'), 'Bearer fake-secret')
+                self.assertIn(b'name="file"; filename="recording.m4a"', request.data)
+                self.assertIn(b'fake-audio', request.data)
+                self.assertNotIn(b'fake-secret', request.data)
+            for audio, mime, code in [(b'', 'audio/webm', 'empty_audio'), (b'x', 'text/plain', 'unsupported_audio'), (b'x'*(app.MAX_AUDIO_BYTES+1), 'audio/wav', 'audio_too_large')]:
+                self.assertEqual(app.call_speech_transcribe(audio, mime)[1], code)
+            response.__enter__.return_value.read.return_value = b'{"text":" "}'
+            with patch('urllib.request.urlopen', return_value=response):
+                self.assertEqual(app.call_speech_transcribe(b'x', 'audio/webm')[1], 'empty_transcript')
+            with patch('urllib.request.urlopen', side_effect=RuntimeError('fake-secret upstream details')):
+                result = app.call_speech_transcribe(b'x', 'audio/webm')
+                self.assertNotIn('fake-secret', result[2])
+
+    def test_voice_api_one_step_with_context_no_creation(self):
+        data, headers = self.multipart({'child_id':'2'})
+        with patch.multiple(app, STT_API_KEY='fake', LLM_API_KEY='fake'), patch.object(app, 'call_speech_transcribe', return_value=(True,'','数学十页')) as transcribe, patch.object(app, 'call_llm_parse', return_value=(True,'',[{'title':'数学十页','subject':'数学','child_id':2}])) as parse:
+            status, body = self.request('/api/ai-voice','POST',data,headers)
+            self.assertEqual(status,200)
+            self.assertEqual(json.loads(body)['drafts'][0]['child_id'],2)
+            transcribe.assert_called_once_with(b'fake-audio','audio/webm')
+            parse.assert_called_once_with('数学十页',None,'',2)
+            self.assertEqual(app.all_items(),[])
+            self.assertEqual(list(Path(app.UPLOAD_DIR).iterdir()),[])
+            with patch.object(app, 'call_llm_parse', return_value=(False,'llm_error','模型暂不可用')):
+                status, body = self.request('/api/ai-voice','POST',data,headers)
+                self.assertEqual(status,502)
+                self.assertEqual(json.loads(body)['transcript'],'数学十页')
+        status, body = self.request('/api/ai-voice','POST',data,headers)
+        self.assertEqual(status,503)
+        with patch.multiple(app, STT_API_KEY='fake', LLM_API_KEY='fake'):
+            for audio,mime in [(b'','audio/webm'),(b'fake','text/plain')]:
+                data,headers = self.multipart({'child_id':'1'},audio,mime)
+                self.assertEqual(self.request('/api/ai-voice','POST',data,headers)[0],400)
+        # Reject content length before attempting to read or send to either provider.
+        conn = http.client.HTTPConnection('127.0.0.1',self.server.server_port)
+        conn.request('POST','/api/ai-voice',headers={'Content-Length':str(app.MAX_AUDIO_BYTES+65537)})
+        response = conn.getresponse(); self.assertEqual(response.status,413); response.read(); conn.close()
+
+    def test_ai_child_context_beats_model_hallucination_and_is_required(self):
+        from unittest.mock import MagicMock
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({'choices':[{'message':{'content':json.dumps([{'title':'数学','subject':'数学','child_id':2,'child_name':'小满'}])}}]}).encode()
+        with patch.object(app,'LLM_API_KEY','fake'), patch('urllib.request.urlopen',return_value=response):
+            for child in (1,2):
+                self.assertEqual(app.call_llm_parse('数学十页',None,'',child)[2][0]['child_id'],child)
+                self.assertEqual(app.call_llm_parse('',b'fake-image','image/png',child)[2][0]['child_id'],child)
+        with patch.object(app,'call_llm_parse',return_value=(True,'',[])) as parse:
+            for path in ('/api/ai-parse','/api/ai-voice'):
+                for child in ('0','999',''):
+                    self.assertEqual(self.request(path,'POST',f'text=math&child_id={child}',{'Content-Type':'application/x-www-form-urlencoded'})[0],400)
+            parse.assert_not_called()
+        with patch.object(app,'call_llm_parse',return_value=(True,'',[])) as parse:
+            self.assertEqual(self.request('/api/ai-parse','POST','text=math&child_id=1',{'Content-Type':'application/x-www-form-urlencoded'})[0],200)
+            parse.assert_called_once_with('math',None,'',1)
 
 
 if __name__ == '__main__':
