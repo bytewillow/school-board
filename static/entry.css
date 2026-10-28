@@ -29,19 +29,6 @@
 #registration .advanced-fields{border-top:1px solid #e7ebf1;padding-top:6px;margin:14px 0}
 #registration .advanced-fields summary{padding:8px 0}
 #registration .entry-submit{margin-top:18px;min-height:54px}
-#voice-entry{border:1px solid #c7d6ec!important;background:#f5f8fe;border-radius:16px!important;padding:18px!important;margin:16px 0 20px!important}
-#voice-entry legend{font-size:17px;font-weight:600;color:#244f94;padding:0 8px}
-#voice-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-#voice-controls button{min-height:52px;flex:1;padding:10px 14px;line-height:1.4}
-#voice-start:before{content:'';width:10px;height:16px;border:2px solid currentColor;border-radius:8px;margin-right:10px;flex-shrink:0}
-#voice-cancel{background:#e8edf5;color:#3c4b60;flex:0 0 auto!important}
-#voice-controls[data-state=recording] #voice-submit{background:#a74443}
-#voice-controls[data-state=recording] #voice-submit:before{content:'';width:10px;height:10px;border-radius:50%;background:currentColor;margin-right:8px}
-#voice-status{margin:10px 0;min-height:44px;display:flex;align-items:center;font-size:13px;color:#405570;line-height:1.6;font-variant-numeric:tabular-nums}
-#voice-entry .voice-file-label{min-height:44px;display:flex;align-items:center;font-size:13px}
-#voice-entry .voice-file-label input{max-width:100%;margin-top:4px}
-#voice-entry details{font-size:12px;color:#59616c;margin-top:10px}
-#voice-entry summary{min-height:44px;cursor:pointer;display:flex;align-items:center;color:#2f66c4}
 #registration .ai-input-card,#registration .ai-review{background:#fff;border:1px solid #e1e6ed;border-radius:20px;padding:24px;margin:16px 0}
 #registration .ai-input-card>h2{margin-bottom:6px}
 #registration #ai-parse-btn{width:100%;margin-top:12px}

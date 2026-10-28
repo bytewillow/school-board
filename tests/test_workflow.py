@@ -63,8 +63,7 @@ class BoardTests(unittest.TestCase):
         return item_id
 
     def test_static_media_allowlist(self):
-        for path, mime in [('/static/voice.js', 'application/javascript'),
-                           ('/static/entry.css', 'text/css'),
+        for path, mime in [('/static/entry.css', 'text/css'),
                            ('/static/media.js', 'application/javascript'),
                            ('/static/media.css', 'text/css'),
                            ('/static/pdfjs/pdf.mjs', 'application/javascript'),
@@ -280,6 +279,9 @@ class BoardTests(unittest.TestCase):
         for cid in (1, 2):
             _, body = self.request(f'/register?child={cid}')
             self.assertIn(f"<option value='{cid}' selected>", body)
+            # 语音录入已从登记页 UI 移除：不用输入法以外的录音入口。
+            self.assertNotIn("id='voice-start'", body)
+            self.assertNotIn('/static/voice.js', body)
             self.assertNotIn("value='0'", body)
             self.assertNotIn("['0','共享']", body)
             _, notebook = self.request(f'/?child={cid}')
@@ -439,8 +441,9 @@ class LoginTests(unittest.TestCase):
         for path in ('/api/ai-parse', '/api/ai-voice', '/api/ai-batch'):
             status, _, body = self.raw(path, 'POST', {'child_id': 1})
             self.assertEqual((status, json.loads(body)['error']), (401, 'unauthorized'))
-        for path in ('/health', '/static/voice.js', '/manifest.json', '/sw.js', '/api'):
+        for path in ('/health', '/manifest.json', '/sw.js', '/api'):
             self.assertEqual(self.raw(path)[0], 200)
+        self.assertEqual(self.raw('/static/voice.js')[0], 404)
         login = self.raw('/login')[2]
         self.assertNotIn('小禾', login)
         self.assertNotIn('小满', login)

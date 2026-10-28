@@ -164,15 +164,12 @@ python3 tools/preview.py
 # http://127.0.0.1:8766/ ，仅虚构示例，临时数据库退出即清除，不读取 data/
 ```
 
-实际运行截图及改动说明见 [界面预览](docs/UI-preview.md) 与 [语音登记预览](docs/voice-entry.md)。预览服务只绑定本机，不是部署。
+实际运行截图及改动说明见 [界面预览](docs/UI-preview.md)。预览服务只绑定本机，不是部署。
 可选浏览器回归（测试工具，不是应用依赖）在预览服务运行时执行：
 `uv run --no-project --with playwright==1.55.0 tests/browser_workflow.py`，需要本机安装 Chromium。
 
-语音与按孩子登记的隔离浏览器集成测试：
-`uv run --no-project --with playwright==1.55.0 tests/browser_voice.py`。
-此测试使用 Chromium 假麦克风及本地 STT/LLM 桩服务，不使用真实音频、密钥或付费调用；
-覆盖 320/390/834/1280 宽度、录音提交自动进入核对、归属切换/修正、权限拒绝、取消、上传回退，
-以及模拟键盘视口变化。没有验证真实 iPhone/iPad、Safari 麦克风或第三方转写准确率。
+语音录入已从登记页 UI 移除（服务器端转写准确率不如本地输入法语音输入）；想用语音时，
+用输入法的语音输入转成文字再粘贴到文字识别框。`/api/ai-voice` 接口本身仍保留，未从 UI 暴露。
 
 License：MIT，见 LICENSE。
 

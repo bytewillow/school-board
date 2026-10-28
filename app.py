@@ -1077,7 +1077,7 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
     session = VIEW_SESSION.get()
     if session and session['role'] == 'student':
         # 学生登记固定为自己，顶部的“本次登记给”提示不再需要；但 entry-child
-        # 隐藏域必须保留，文字 / 语音录入的 JS 靠它取孩子 id，JS 也会找
+        # 隐藏域必须保留，文字录入的 JS 靠它取孩子 id，JS 也会找
         # registration-context 这个容器。去掉卡片样式后空容器不占视觉空间。
         context_html = (f"<div id='registration-context' hidden>"
                         f"<input id='entry-child' type='hidden' value='{preselect_child}'></div>")
@@ -1085,10 +1085,10 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
         api_help = ''
     message_html = f"<p role='status'>{esc(msg)}</p>" if msg else ""
     body = ("<link rel='stylesheet' href='/static/entry.css'><div id='registration'><header class='entry-header'><h1>把今天的作业记下来</h1>"
-            "<p class='muted'>说一段、拍张照，或手动记一条，核对后再创建。</p></header>"
+            "<p class='muted'>写一句、拍张照，或手动记一条，核对后再创建。</p></header>"
             + message_html + context_html +
             "<div class='entry-switch' hidden aria-label='登记方式'>"
-            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='true'>文字 / 拍照 / 语音</button>"
+            "<button type='button' data-entry='ai' aria-controls='ai-entry' aria-pressed='true'>文字 / 拍照</button>"
             "<button type='button' data-entry='manual' aria-controls='manual-entry' aria-pressed='false'>手动登记</button></div>"
             "<section id='ai-entry' class='entry-section'>" + ai_entry_html(subjects, children) + "</section>"
             + "<section id='manual-entry' class='entry-section card'><p class='entry-step'>填写内容</p><h2>手动登记</h2>"
@@ -1650,24 +1650,10 @@ document.getElementById('ai-create-btn').onclick = async function() {
     configured = bool(LLM_API_KEY)
     model_note = ("文字或照片会发给已配置的模型服务商，可能产生 API 费用。" if configured
                   else "尚未配置模型，文字 / 拍照识别不可用。可展开下方入口粘贴 JSON，生成草稿后核对。")
-    voice_configured = configured and bool(STT_API_KEY)
-    voice_note = ("录音提交后，音频会经服务器发送给已配置的语音服务商，转写文字再交给 AI 模型；两步可能分别计费。录音不保存到作业本，服务商的保留政策由其规定。"
-                  if voice_configured else "语音需同时配置 STT_API_KEY 和 LLM_API_KEY；未配置时仍可手动登记或粘贴 JSON。")
-    voice_html = ("<fieldset id='voice-entry' style='margin:16px 0;padding:12px;border:1px solid #d7dce5;border-radius:12px'>"
-                  "<legend>说一段，自动拆成作业</legend><p class='form-note'>不用重复孩子姓名，说清学科和作业要求即可。</p>"
-                  f"<div id='voice-controls' data-configured='{str(voice_configured).lower()}'>"
-                  f"<button type='button' id='voice-start' {'disabled' if not voice_configured else ''} aria-describedby='voice-privacy voice-status'>开始录音</button> "
-                  "<button type='button' id='voice-submit' hidden>提交语音并解析</button> "
-                  "<button type='button' id='voice-cancel' hidden>取消录音</button></div>"
-                  "<p id='voice-status' class='muted' role='status' aria-live='polite'>每次最多录音 2 分钟；提交后自动生成待核对草稿，不会直接创建作业。</p>"
-                  "<label class='form-field' for='voice-file'>或选择录音文件（最大 10MB，选择后自动解析）</label>"
-                  f"<input id='voice-file' type='file' accept='audio/webm,audio/mp4,audio/m4a,audio/x-m4a,audio/mpeg,audio/wav,audio/x-wav,audio/ogg' {'disabled' if not voice_configured else ''}>"
-                  "<p class='form-note'>提交会发送给所配置的语音及 AI 服务，可能分别计费。</p>"
-                  "<details><summary>语音隐私与费用说明</summary><p id='voice-privacy'>" + voice_note + "</p></details></fieldset>")
     html = ("<div class='ai-input-card'><p class='entry-step'>1 / 录入内容</p><h2>先识别，再核对</h2>"
-            "<p class='muted'>语音提交后直接生成草稿，不必再点识别。确认之前不会创建作业。</p>"
-            "<div class='ai-input-grid'>" + voice_html +
-            "<div><label class='form-field' for='ai-text'>或写一句、拍张照</label><textarea id='ai-text' placeholder='例如：明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
+            "<p class='muted'>识别后生成草稿，确认之前不会创建作业。想用语音时，用输入法的语音输入转成文字再粘贴进来，识别更准。</p>"
+            "<div class='ai-input-grid'>"
+            "<div><label class='form-field' for='ai-text'>写一句、拍张照</label><textarea id='ai-text' placeholder='例如：明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
             "<label class='form-field' for='ai-image'>照片（可选，最大 10MB）</label><input id='ai-image' type='file' accept='image/*' aria-label='拍照或选图'>"
             f"<p class='form-note'>{model_note}</p>"
             f"<button id='ai-parse-btn' type='button' {'disabled' if not configured else ''}>识别文字 / 照片</button></div></div></div>"
@@ -1680,7 +1666,7 @@ document.getElementById('ai-create-btn').onclick = async function() {
             "<label class='form-field' for='ai-json'>JSON 草稿数组</label><textarea id='ai-json' placeholder='[{\"title\":\"数学练习册第10页\",\"subject\":\"数学\",\"kind\":\"homework\",\"child_id\":1,\"due\":\"2026-10-28\",\"body\":\"\"}]'></textarea>"
             "<button id='ai-json-btn' type='button'>用粘贴的 JSON 生成草稿</button></details>"
             "<script type='application/json' id='sb-lists'>__LISTS_JSON__</script>"
-            "<script>" + js + "</script><script src='/static/voice.js'></script>")
+            "<script>" + js + "</script>")
     return html.replace("__LISTS_JSON__", lists_json)
 
 
@@ -1756,7 +1742,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_html(login_page())
             return
-        if u.path in ("/static/entry.css", "/static/voice.js", "/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
+        if u.path in ("/static/entry.css", "/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
             ctype = {"json": "application/manifest+json", "js": "application/javascript",
                      "svg": "image/svg+xml", "png": "image/png", "mjs": "application/javascript", "css": "text/css"}.get(u.path.rsplit(".", 1)[-1], "image/png")
             try:
