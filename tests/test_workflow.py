@@ -643,5 +643,44 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(headers['X-Content-Type-Options'], 'nosniff')
 
 
+    def test_admin_item_edit(self):
+        item_id = self.item('旧标题', child=1, due='2026-10-20')
+        before = app.get_item(item_id)
+        status, _, body = self.raw('/admin/items?child=1', cookie=self.cookie)
+        self.assertEqual(status, 200)
+        self.assertIn(f"/admin/item/edit?id={item_id}", body)
+        status, _, body = self.raw(f'/admin/item/edit?id={item_id}', cookie=self.cookie)
+        self.assertEqual(status, 200)
+        self.assertIn('旧标题', body)
+        self.assertIn("value='2026-10-20'", body)
+        fields = {'id': item_id, 'title': '新标题', 'subject': '语文', 'kind': 'notice',
+                  'body': '新正文', 'link_url': 'https://example.com/x', 'due': '2026-11-01',
+                  'visible_at': '2026-10-29T08:00', 'pinned': 'on', 'child_id': '2'}
+        status, headers, _ = self.raw('/admin/item/edit', 'POST', fields, self.cookie)
+        self.assertEqual((status, headers['Location']), (303, '/admin/items?child=2'))
+        it = app.get_item(item_id)
+        self.assertEqual((it['title'], it['subject'], it['kind'], it['body'], it['link_url'],
+                          it['due'], it['visible_at'], it['pinned'], it['child_id']),
+                         ('新标题', '语文', 'notice', '新正文', 'https://example.com/x',
+                          '2026-11-01', '2026-10-29T08:00', 1, 2))
+        self.assertEqual((it['done'], it['created'], it['filename']), (before['done'], before['created'], before['filename']))
+        bad = dict(fields, subject='不存在的学科', title='坏标题')
+        status, _, body = self.raw('/admin/item/edit', 'POST', bad, self.cookie)
+        self.assertEqual(status, 200)
+        self.assertIn('学科不存在', body)
+        self.assertEqual(app.get_item(item_id)['title'], '新标题')
+        bad = dict(fields, title='   ')
+        status, _, body = self.raw('/admin/item/edit', 'POST', bad, self.cookie)
+        self.assertEqual(status, 200)
+        self.assertIn('标题不能为空', body)
+        self.assertEqual(app.get_item(item_id)['title'], '新标题')
+        self.assertEqual(self.raw('/admin/item/edit?id=9999', cookie=self.cookie)[0], 404)
+        scookie = self.student()
+        self.assertEqual(self.raw(f'/admin/item/edit?id={item_id}', cookie=scookie)[0], 403)
+        self.assertEqual(self.raw('/admin/item/edit', 'POST', fields, scookie)[0], 403)
+        self.assertEqual(self.raw(f'/admin/item/edit?id={item_id}')[1]['Location'], '/admin')
+        self.assertEqual(self.raw('/admin/item/edit', 'POST', fields)[1]['Location'], '/admin')
+        self.assertEqual(app.get_item(item_id)['title'], '新标题')
+
 if __name__ == '__main__':
     unittest.main()

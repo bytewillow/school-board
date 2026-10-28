@@ -1224,6 +1224,7 @@ def admin_items_page(child_id=None):
             meta += " · ✅ 已完成"
         rows += (f"<div class='arow'><div class='t'><a href='/item?id={it['id']}'>{esc(it['title'])}</a>"
                  f"<div class='meta'>{meta}</div></div>"
+                 f"<a class='small' href='/admin/item/edit?id={it['id']}'>修改</a>"
                  f"<form method='post' action='/admin/delete' style='margin:0'>"
                  f"<input type='hidden' name='id' value='{it['id']}'>"
                  "<button class='danger small'>删除</button></form></div>")
@@ -1232,6 +1233,54 @@ def admin_items_page(child_id=None):
             + (rows or "<p>这个孩子还没有内容。</p>"))
     return page("登记项目管理 - 作业板", body)
 
+
+
+def admin_item_edit_page(it, msg=""):
+    """登记项目修改页（家长专用）：只改元数据，不动附件、创建时间与完成状态。"""
+    subjects, children = get_subjects(), get_children()
+    subj_options = "".join(
+        f"<option value='{esc(s)}' {'selected' if s == it['subject'] else ''}>{esc(s)}</option>"
+        for s in subjects)
+    kind_options = "".join(
+        f"<option value='{k}' {'selected' if k == it['kind'] else ''}>{v}</option>"
+        for k, v in KINDS.items())
+    child_options = "".join(
+        f"<option value='{c['id']}' {'selected' if c['id'] == it['child_id'] else ''}>{esc(c['name'])}</option>"
+        for c in children)
+    if it['child_id'] == 0:
+        child_options += "<option value='0' selected>共享（历史）</option>"
+    attachment = ""
+    if it.get('filename'):
+        attachment = f"<p class='muted'>附件：{esc(it['filename'])}（本次修改不换附件）</p>"
+    if it.get('done'):
+        attachment += "<p class='muted'>完成状态：已完成（本次修改不改动）</p>"
+    body = (admin_top(f"/admin/items?child={it['child_id']}", "← 回登记项目管理")
+            + "<h3>修改登记项目</h3>"
+            + (f"<p role='status'>{esc(msg)}</p>" if msg else '')
+            + f"<form method='post' action='/admin/item/edit' class='card'>"
+            f"<input type='hidden' name='id' value='{it['id']}'>"
+            "<label class='form-field' for='edit-title'>标题</label>"
+            f"<input id='edit-title' name='title' value='{esc(it['title'])}' required>"
+            "<label class='form-field' for='edit-subject'>学科</label>"
+            f"<select id='edit-subject' name='subject'>{subj_options}</select>"
+            "<label class='form-field' for='edit-kind'>类型</label>"
+            f"<select id='edit-kind' name='kind'>{kind_options}</select>"
+            "<label class='form-field' for='edit-child'>归属孩子</label>"
+            f"<select id='edit-child' name='child_id'>{child_options}</select>"
+            "<label class='form-field' for='edit-body'>文字内容</label>"
+            f"<textarea id='edit-body' name='body' rows='4'>{esc(it['body'] or '')}</textarea>"
+            "<label class='form-field' for='edit-link'>原链接</label>"
+            f"<input id='edit-link' name='link_url' type='url' value='{esc(it['link_url'] or '')}' placeholder='https://…'>"
+            "<label class='form-field' for='edit-due'>截止日期（可选）</label>"
+            f"<input id='edit-due' name='due' type='date' value='{esc(it['due'] or '')}'>"
+            "<label class='form-field' for='edit-visible'>到这个时间才显示（可选）</label>"
+            f"<input id='edit-visible' name='visible_at' type='datetime-local' value='{esc(it['visible_at'] or '')}'>"
+            "<label style='display:flex;gap:10px;align-items:center;min-height:48px'>"
+            f"<input type='checkbox' name='pinned' {'checked' if it['pinned'] else ''}> 置顶提醒</label>"
+            + attachment
+            + "<button class='full'>保存修改</button></form>"
+            f"<p><a class='back' href='/admin/items?child={it['child_id']}'>← 不改了，回去</a></p>")
+    return page("修改登记项目 - 作业板", body)
 
 
 def api_token_ok(token):
@@ -1754,6 +1803,19 @@ class Handler(BaseHTTPRequestHandler):
                     except ValueError:
                         self.send_html(admin_items_page(None))
             return
+        if u.path == "/admin/item/edit":
+            if not is_admin(self):
+                self.redirect("/admin")
+                return
+            try:
+                it = get_item(int(params.get("id", ["0"])[0]))
+            except ValueError:
+                it = None
+            if not it:
+                self.send_html(error_page("没找到这条内容", "它可能已被删除，回到登记项目管理重新找一下。"), 404)
+                return
+            self.send_html(admin_item_edit_page(it))
+            return
         if u.path.startswith("/uploads/"):
             name = unquote(urlparse(self.path).path[len("/uploads/"):])
             if "/" in name or ".." in name or not os.path.isfile(os.path.join(UPLOAD_DIR, name)):
@@ -2051,6 +2113,59 @@ class Handler(BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             self.redirect("/admin/api-token")
+            return
+        if u.path == "/admin/item/edit":
+            try:
+                item_id = int(fields.get("id", "0"))
+            except ValueError:
+                item_id = 0
+            it = get_item(item_id)
+            if not it:
+                self.send_html(error_page("没找到这条内容", "它可能已被删除，回到登记项目管理重新找一下。"), 404)
+                return
+            title = (fields.get("title") or "").strip()
+            subject = fields.get("subject") or ""
+            kind = fields.get("kind") or ""
+            try:
+                child_id = int(fields.get("child_id") or 0)
+            except ValueError:
+                child_id = -1
+            due = (fields.get("due") or "").strip()
+            visible_at = (fields.get("visible_at") or "").strip()
+            children = get_children()
+            valid_children = [c["id"] for c in children] + ([0] if it["child_id"] == 0 else [])
+            error = ""
+            if not title:
+                error = "标题不能为空，未保存。"
+            elif subject not in get_subjects():
+                error = "学科不存在，未保存。"
+            elif kind not in KINDS:
+                error = "类型不存在，未保存。"
+            elif child_id not in valid_children:
+                error = "归属孩子不存在，未保存。"
+            elif due and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
+                error = "截止日期格式不对，未保存。"
+            elif visible_at and not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?", visible_at):
+                error = "显示时间格式不对，未保存。"
+            if error:
+                draft = dict(it)
+                draft.update(title=title, subject=subject, kind=kind,
+                             body=fields.get("body") or "",
+                             link_url=fields.get("link_url") or "", due=due,
+                             visible_at=visible_at,
+                             pinned=1 if fields.get("pinned") else 0,
+                             child_id=child_id)
+                self.send_html(admin_item_edit_page(draft, error))
+                return
+            conn = db()
+            conn.execute("UPDATE items SET title=?, subject=?, kind=?, body=?, link_url=?,"
+                         "due=?, visible_at=?, pinned=?, child_id=? WHERE id=?",
+                         (title, subject, kind, fields.get("body") or "",
+                          safe_link(fields.get("link_url")), due, visible_at,
+                          1 if fields.get("pinned") else 0, child_id, item_id))
+            conn.commit()
+            conn.close()
+            self.redirect(f"/admin/items?child={child_id}")
             return
         if u.path == "/admin/delete":
             try:
