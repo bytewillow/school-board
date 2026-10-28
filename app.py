@@ -1230,6 +1230,8 @@ def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
     req = urllib.request.Request(LLM_BASE_URL.rstrip("/") + "/chat/completions", data=payload, method="POST")
     req.add_header("Authorization", "Bearer " + LLM_API_KEY)
     req.add_header("Content-Type", "application/json")
+    # Groq/Cloudflare rejects Python's default User-Agent with 403; use an honest app UA.
+    req.add_header("User-Agent", "school-board/1.0")
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode())
@@ -1280,6 +1282,8 @@ def call_speech_transcribe(audio_bytes, audio_ctype):
                                  data=b"".join(parts), method="POST")
     req.add_header("Authorization", "Bearer " + STT_API_KEY)
     req.add_header("Content-Type", "multipart/form-data; boundary=" + boundary)
+    # Groq/Cloudflare rejects Python's default User-Agent with 403; use an honest app UA.
+    req.add_header("User-Agent", "school-board/1.0")
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             result = json.loads(response.read().decode("utf-8"))
