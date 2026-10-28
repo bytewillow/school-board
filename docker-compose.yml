@@ -8,6 +8,14 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - DATA_DIR=/data
       - PORT=8765
+      # 可选：AI 解析与语音转写，密钥只放 shell / .env，不提交到仓库
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_VISION_MODEL=${LLM_VISION_MODEL:-}
+      - STT_API_KEY=${STT_API_KEY:-}
+      - STT_BASE_URL=${STT_BASE_URL:-https://api.openai.com/v1}
+      - STT_MODEL=${STT_MODEL:-whisper-1}
     volumes:
       - ./data:/data
     ports:

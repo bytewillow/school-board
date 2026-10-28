@@ -37,7 +37,7 @@ with sync_playwright() as p:
     page.locator("[data-entry='ai']").click()
     expect(page.locator('#manual-entry')).to_be_hidden()
     expect(page.locator('#ai-parse-btn')).to_be_disabled()
-    page.locator('#ai-entry summary').click()
+    page.locator('.entry-tools summary').click()
     page.locator('#ai-json').fill(json.dumps([
         {'title': '浏览器成功草稿', 'subject': '数学', 'child_id': 1},
         {'title': '暂不创建', 'subject': '语文', 'child_id': 1},

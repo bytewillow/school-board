@@ -57,9 +57,10 @@ python3 app.py
 ## 多孩子
 
 - 管理页“加孩子”：多孩首页先选登记簿；每个封面包含自己的和共享的可见内容，
-  不计入尚未到显示时间的内容。“给某某登记”会预选手动表单的孩子。
-- 共享内容在每本都可见；共享作业仍只有一份完成状态，一个本子完成后其他本子也同步。
-  本次不拆分按孩子完成状态，也不迁移旧数据；登记与详情已明确说明。
+  不计入尚未到显示时间的内容。“给某某登记”和本子内的登记入口会沿用孩子，手动、文字、图片、语音都不必重复选人或口述姓名。
+- 新登记必须属于具体孩子，不再提供共享选项。直接打开登记页时，多孩先选本子，单孩自动沿用；核对草稿时仍可逐条修正归属。
+- 历史 `child_id=0` 内容不删除、不迁移，仍在每本可见，历史共享作业的完成状态继续共用。
+  删除孩子仍按原有行为把其内容转为全部可见；若要重新分配历史记录，需另行决定，不能从姓名猜测归属。
 - 删除孩子时，他/她专属的内容会转为全部可见，不删内容
 - 还没有“每个孩子单独密码 / 单独看板”，需要的话下一版再加
 
@@ -72,10 +73,10 @@ python3 app.py
 
 ```bash
 # 传一个文件，标题不填就用文件名
-curl -F "file=@/path/数学练习.pdf" -F "subject=数学" -F "kind=homework" http://HOST:8765/api/items
+curl -F "file=@/path/数学练习.pdf" -F "subject=数学" -F "kind=homework" -F "child_id=1" http://HOST:8765/api/items
 
 # 只传文字 / 链接
-curl -d "title=本周通知&subject=语文&body=周五听写" http://HOST:8765/api/items
+curl -d "title=本周通知&subject=语文&body=周五听写&child_id=1" http://HOST:8765/api/items
 
 # 查已登记内容（JSON）
 curl "http://HOST:8765/api/items?subject=数学"
@@ -83,7 +84,7 @@ curl "http://HOST:8765/api/items?subject=数学"
 
 iPhone 捷径：分享菜单 → 新建捷径 → 接收“文件/图像/PDF”→
 “获取 URL 内容”选 POST、表单，地址填 `http://HOST:8765/api/items`，
-表单里 file=捷径输入、subject=问一下（或固定一门）、kind=homework；
+先 GET `/api/lists` 获取真实孩子 id，表单里 file=捷径输入、subject=问一下（或固定一门）、child_id=所选孩子 id、kind=homework；
 把捷径加到分享菜单，以后在微信里长按文件 → 分享 → 这个捷径，
 一步就登记进来了。手机须和服务器在同一局域网，或都连着 Tailscale。
 
@@ -123,7 +124,7 @@ docker run -d --name school-board -p 8765:8765 \
 
 ## AI 录入
 
-- 方案一（登记页集成）：手动登记与“文字 / 拍照识别”并列，默认手动。写一句话或拍一张作业单，
+- 方案一（登记页集成）：手动登记与“文字 / 拍照 / 语音”并列，默认手动。写一句话或拍一张作业单，
   AI 先拆成草稿，你逐条核对后再批量创建，草稿确认前不入库；没配 LLM 时用
   下面的粘贴 JSON（免费聊天 App 里解析完复制过来也行）。部分创建失败时，只移除成功项，
   失败及未勾选草稿保留；连接中断时结果可能已写入，请先检查本子，勿盲目重复提交。
@@ -133,7 +134,27 @@ docker run -d --name school-board -p 8765:8765 \
   生成那一刻外不显示明文；AI 的完整用法见仓库根目录 `SKILL.md`，要点是先
   `GET /api/lists` 再逐条 `POST /api/items`，确认后才创建，令牌允许查列表、读取可见内容和
   创建，不能删除和管理。公开域名走 Caddy 时只反代 `/api/lists` 和 `/api/items`，
-  不要反代 `/admin`、`/api/ai-parse`、`/api/ai-batch`。
+  不要反代 `/admin`、`/api/ai-parse`、`/api/ai-voice`、`/api/ai-batch`。
+
+### 语音录入：提交即解析，确认后才创建
+
+- 在孩子的登记页切到“文字 / 拍照 / 语音”，点“开始录音”，说完点“提交语音并解析”。
+  服务端先转写再解析，直接显示现有可编辑草稿，不必再点识别；不会自动创建作业。
+  也可选择已有录音文件，选择后直接解析。原有文字 / 照片、手动登记和粘贴 JSON 路径不变。
+- 浏览器录音需要 HTTPS 安全上下文（本机 `localhost` 例外）、麦克风权限及 MediaRecorder 支持。
+  普通局域网 HTTP 地址通常不能录音，仍可选择录音文件或用文字 / 照片。手机/平板的授权和编码格式因浏览器而异。
+- 录音上限 2 分钟，达到后停止但**不自动提交**；可提交或取消。音频上限 10MB。
+  支持 WebM、MP4/M4A、WAV、MP3、Ogg，请确认服务商也支持所用格式。取消录音不发送音频。
+- 在服务端配置 `STT_API_KEY`、`STT_BASE_URL`（默认 `https://api.openai.com/v1`）、
+  `STT_MODEL`（默认 `whisper-1`）；接口须支持 OpenAI 兼容 multipart `POST /audio/transcriptions`
+  和 `response_format=json`，返回 `{"text":"转写文字"}`。同时保留原有 `LLM_*` 配置。
+  默认聊天服务 DeepSeek 不代表提供转写，语音密钥与聊天密钥独立；没配置时语音入口明确禁用。
+  Compose 可从 shell / `.env` 传入上述变量，修改后重新创建容器；密钥只在服务端，不要提交到仓库。
+- 提交会把音频经服务器发送给所配置的语音服务，转写文字再发给所配置的聊天模型，可能分别计费。
+  原始音频不写入本地文件或作业附件，转写文字回填页面供修改；服务商的保留政策以其条款为准。
+  转写成功而 AI 解析失败会保留文字，可修改后仅重试文字解析；超时可能已被服务商处理或计费，不要连续盲目重试。
+- `/api/ai-voice` 与文字 AI 接口一样，仅供可信家庭网络中的登记页使用；它不是有独立登录保护的公开服务。
+  不要直接反代到公网。新增作业的 HTTP 接口均要求有效具体孩子 id；旧捷径若缺少 `child_id` 或传 `0`，需更新。
 
 ## 测试与安全预览
 
@@ -143,8 +164,14 @@ python3 tools/preview.py
 # http://127.0.0.1:8766/ ，仅虚构示例，临时数据库退出即清除，不读取 data/
 ```
 
-实际运行截图及改动说明见 [界面预览](docs/UI-preview.md)。预览服务只绑定本机，不是部署。
+实际运行截图及改动说明见 [界面预览](docs/UI-preview.md) 与 [语音登记预览](docs/voice-entry.md)。预览服务只绑定本机，不是部署。
 可选浏览器回归（测试工具，不是应用依赖）在预览服务运行时执行：
 `uv run --no-project --with playwright==1.55.0 tests/browser_workflow.py`，需要本机安装 Chromium。
+
+语音与按孩子登记的隔离浏览器集成测试：
+`uv run --no-project --with playwright==1.55.0 tests/browser_voice.py`。
+此测试使用 Chromium 假麦克风及本地 STT/LLM 桩服务，不使用真实音频、密钥或付费调用；
+覆盖 320/390/834/1280 宽度、录音提交自动进入核对、归属切换/修正、权限拒绝、取消、上传回退，
+以及模拟键盘视口变化。没有验证真实 iPhone/iPad、Safari 麦克风或第三方转写准确率。
 
 License：MIT，见 LICENSE。

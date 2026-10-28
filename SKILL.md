@@ -9,10 +9,10 @@ token for each setup, and the agent must use them only for that setup.
 
 - `GET http://HOST/api/lists`, with header `X-API-Token: <token>` when a token
   is configured.
-- The response returns `children` (`{"id": 0, "name": "全部"}` plus real children)
+- The response returns `children` (real children only, each with `id` and `name`)
   and `subjects` (for example `["语文", "数学", "英语", ...]`).
-- Use those exact values and nothing else. Child id `0` means shared, not
-  assigned to one child.
+- Use those exact values and nothing else. New entries must belong to a real child. `0` is no longer accepted for creation;
+  historical shared records remain readable without migration.
 - If the lists call returns 401, stop and ask the user for a valid token.
   Never guess a child id or a subject name.
 
@@ -35,7 +35,8 @@ token for each setup, and the agent must use them only for that setup.
   item. Ask the user to add the subject in the admin page first, or ask
   which listed subject to use.
 - `child_id` must match a lists child id exactly, otherwise do not create
-  the item for that child. Use `0` only when the user means shared.
+  the item for that child. Never use `0` or omit the child id for new entries.
+  When the user has selected a child notebook, reuse that context without asking again.
 - `kind` is one of `notice`, `homework`, `material`, `answer`, `listening`,
   `announcement`. Leave it out when unsure: audio files infer to listening,
   PDF files infer to material, everything else infers to notice.
@@ -53,7 +54,7 @@ token for each setup, and the agent must use them only for that setup.
   items, adding or renaming children, or adding or deleting subjects.
 - Never call an admin page or admin action with the token. Those need the
   admin login, which only the user handles in the browser.
-- Never use `/api/ai-parse` or `/api/ai-batch` from an external agent.
+- Never use `/api/ai-parse`, `/api/ai-voice`, or `/api/ai-batch` from an external agent.
   Those are for the board's own register page on the local network only.
 
 ## 5. Public access (optional, template only)
