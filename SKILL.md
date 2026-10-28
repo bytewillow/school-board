@@ -55,11 +55,13 @@ token for each setup, and the agent must use them only for that setup.
 - Never call an admin page or admin action with the token. Those need the
   admin login, which only the user handles in the browser.
 - Never use `/api/ai-parse`, `/api/ai-voice`, or `/api/ai-batch` from an external agent.
-  Those are for the board's own register page on the local network only.
+  Those require a signed-in web session and are for the board's own same-origin register page (LAN or HTTPS), not API-token clients.
 
 ## 5. Public access (optional, template only)
 
-When an AI outside the home network needs to reach the board, expose only
+For full-site HTTPS web access with parent/student login, follow [docs/login.md](docs/login.md). The following API-only proxy remains an alternative if web access is not needed.
+
+When only an AI outside the home network needs to reach the board, expose only
 `/api/lists` and `/api/items` through the reverse proxy, and nothing else.
 Configure an environment or admin-generated API token before exposing these paths;
 `GET /api/items` requires the same token when one is configured. Without a token,

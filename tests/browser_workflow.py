@@ -16,6 +16,7 @@ with sync_playwright() as p:
                                   device_scale_factor=1, has_touch=True, reduced_motion='reduce')
         mobile.on('pageerror', lambda e: errors.append(str(e)))
         for name, path in [('notebooks', '/'), ('binder', '/?child=2'), ('register', '/register?child=2')]:
+            mobile.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
             mobile.goto(BASE + path)
             assert mobile.evaluate('document.documentElement.scrollWidth <= innerWidth'), (width, path, 'horizontal overflow')
             if width == 390:
@@ -23,6 +24,7 @@ with sync_playwright() as p:
         mobile.close()
     page = browser.new_page(viewport={'width': 1440, 'height': 640}, reduced_motion='reduce')
     page.on('pageerror', lambda e: errors.append(str(e)))
+    page.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
     page.goto(BASE)
     expect(page.locator('.notebook')).to_have_count(2)
     page.screenshot(path=str(OUT / 'notebooks-desktop.png'), full_page=True)
@@ -30,6 +32,7 @@ with sync_playwright() as p:
     page.locator("a[href='/?child=1']").first.click()
     expect(page.locator('body')).to_contain_text('接下来要做')
     page.screenshot(path=str(OUT / 'binder-desktop.png'), full_page=True)
+    page.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
     page.goto(BASE + '/register?child=1')
     expect(page.locator('#manual-entry')).to_be_visible()
     expect(page.locator('#ai-entry')).to_be_hidden()

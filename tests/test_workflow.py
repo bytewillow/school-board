@@ -1,4 +1,5 @@
 """Standard-library regression tests; never use a deployment's database."""
+from urllib.parse import urlencode
 import hashlib
 import http.client
 import json
@@ -21,7 +22,7 @@ class BoardTests(unittest.TestCase):
         self.paths = patch.multiple(app, DATA_DIR=self.tmp.name,
                                     UPLOAD_DIR=str(Path(self.tmp.name) / 'uploads'),
                                     DB_PATH=str(Path(self.tmp.name) / 'board.db'),
-                                    API_TOKEN='', LLM_API_KEY='')
+                                    ADMIN_PASSWORD='fixture-parent-only', API_TOKEN='', LLM_API_KEY='')
         self.paths.start()
         app.init_db()
         with app.db() as conn:
@@ -29,6 +30,13 @@ class BoardTests(unittest.TestCase):
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        conn.request('POST', '/admin/login', urlencode({'password': app.ADMIN_PASSWORD}),
+                     {'Content-Type': 'application/x-www-form-urlencoded'})
+        response = conn.getresponse()
+        self.assertEqual(response.status, 303)
+        self.cookie = response.getheader('Set-Cookie').split(';', 1)[0]
+        response.read(); conn.close()
 
     def tearDown(self):
         self.server.shutdown()
@@ -39,7 +47,7 @@ class BoardTests(unittest.TestCase):
 
     def request(self, path, method='GET', data=None, headers=None):
         conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
-        conn.request(method, path, body=data, headers=headers or {})
+        conn.request(method, path, body=data, headers={"Cookie": self.cookie, **(headers or {})})
         response = conn.getresponse()
         body = response.read().decode()
         status = response.status
@@ -80,7 +88,7 @@ class BoardTests(unittest.TestCase):
                                                     ('bytes=9-2', 416, b'', 'bytes */10'),
                                                     ('bytes=0-1,4-5', 416, b'', 'bytes */10')]:
             conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
-            conn.request('GET', url, headers={'Range': value})
+            conn.request('GET', url, headers={'Range': value, 'Cookie': self.cookie})
             response = conn.getresponse()
             self.assertEqual(response.status, status)
             self.assertEqual(response.getheader('Content-Range'), content_range)
@@ -348,7 +356,7 @@ class BoardTests(unittest.TestCase):
                 self.assertEqual(self.request('/api/ai-voice','POST',data,headers)[0],400)
         # Reject content length before attempting to read or send to either provider.
         conn = http.client.HTTPConnection('127.0.0.1',self.server.server_port)
-        conn.request('POST','/api/ai-voice',headers={'Content-Length':str(app.MAX_AUDIO_BYTES+65537)})
+        conn.request('POST','/api/ai-voice',headers={'Content-Length':str(app.MAX_AUDIO_BYTES+65537), 'Cookie': self.cookie})
         response = conn.getresponse(); self.assertEqual(response.status,413); response.read(); conn.close()
 
     def test_ai_child_context_beats_model_hallucination_and_is_required(self):
@@ -367,6 +375,272 @@ class BoardTests(unittest.TestCase):
         with patch.object(app,'call_llm_parse',return_value=(True,'',[])) as parse:
             self.assertEqual(self.request('/api/ai-parse','POST','text=math&child_id=1',{'Content-Type':'application/x-www-form-urlencoded'})[0],200)
             parse.assert_called_once_with('math',None,'',1)
+
+
+class LoginTests(unittest.TestCase):
+    # Reuse isolated fixtures, not baseline test cases.
+    setUp = BoardTests.setUp
+    tearDown = BoardTests.tearDown
+    item = BoardTests.item
+
+    def raw(self, path, method='GET', fields=None, cookie='', headers=None, data=None):
+        headers = dict(headers or {})
+        if cookie:
+            headers['Cookie'] = cookie
+        if fields is not None:
+            data = urlencode(fields)
+            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        conn.request(method, path, body=data, headers=headers)
+        response = conn.getresponse()
+        result = response.status, dict(response.getheaders()), response.read().decode()
+        conn.close()
+        return result
+
+    def set_password(self, cid=1, password='fixture-only-password', clear=False):
+        return self.raw('/admin/child/password', 'POST',
+                        {'id': cid, 'password': password, 'operation': 'clear' if clear else 'set'}, self.cookie)
+
+    def login(self, name='小禾', password='fixture-only-password', headers=None):
+        status, response, body = self.raw('/login', 'POST', {'name': name, 'password': password}, headers=headers)
+        self.assertEqual(status, 303)
+        self.assertEqual(response['Location'], '/')
+        return response['Set-Cookie'].split(';', 1)[0]
+
+    def student(self):
+        self.set_password()
+        return self.login()
+
+    def test_parent_all_management_and_legacy_cookie(self):
+        for cookie in (self.cookie, 'admin=' + app.admin_token()):
+            for path in ('/admin', '/admin/children', '/admin/subjects', '/admin/items', '/admin/api-token'):
+                self.assertEqual(self.raw(path, cookie=cookie)[0], 200)
+            self.assertEqual(self.raw('/login', cookie=cookie)[1]['Location'], '/admin')
+        status, headers, _ = self.raw('/admin/logout', 'POST', cookie=self.cookie)
+        self.assertEqual(status, 303)
+        self.assertEqual(self.raw('/admin/children', cookie=self.cookie)[1]['Location'], '/admin')
+        self.assertIn('家长登录', self.raw('/admin')[2])
+
+    def test_anonymous_route_matrix_and_public_assets(self):
+        self.item('private-title')
+        for path in ('/', '/register', '/item?id=1', '/uploads/missing.png'):
+            status, headers, body = self.raw(path)
+            self.assertEqual((status, headers['Location']), (303, '/login'))
+            self.assertNotIn('private-title', body)
+        for path in ('/done', '/add', '/admin/add'):
+            status, headers, _ = self.raw(path, 'POST', {'id': 1, 'child_id': 1})
+            self.assertEqual((status, headers['Location']), (303, '/login'))
+        self.assertEqual(len(app.all_items()), 1)
+        self.assertFalse(app.get_item(1)['done'])
+        for path in ('/admin/child/password', '/admin/child/delete'):
+            self.assertEqual(self.raw(path, 'POST', {'id': 1})[1]['Location'], '/admin')
+        for path in ('/api/ai-parse', '/api/ai-voice', '/api/ai-batch'):
+            status, _, body = self.raw(path, 'POST', {'child_id': 1})
+            self.assertEqual((status, json.loads(body)['error']), (401, 'unauthorized'))
+        for path in ('/health', '/static/voice.js', '/manifest.json', '/sw.js', '/api'):
+            self.assertEqual(self.raw(path)[0], 200)
+        login = self.raw('/login')[2]
+        self.assertNotIn('小禾', login)
+        self.assertNotIn('小满', login)
+        self.assertNotIn('<select', login)
+
+    def test_login_success_and_uniform_failure(self):
+        self.set_password()
+        failures = []
+        for name, password in (('小禾', 'incorrect'), ('nobody', 'incorrect'), ('小满', 'incorrect')):
+            status, headers, body = self.raw('/login', 'POST', {'name': name, 'password': password})
+            self.assertEqual(status, 200)
+            self.assertNotIn('Set-Cookie', headers)
+            self.assertIn('名字或密码不对', body)
+            failures.append(body)
+        self.assertEqual(len(set(failures)), 1)
+        cookie = self.login()
+        self.assertIn('小禾的作业登记簿', self.raw('/', cookie=cookie)[2])
+        self.assertEqual(self.raw('/login', cookie=cookie)[1]['Location'], '/')
+        self.assertEqual(self.raw('/login', 'POST', {}, cookie)[1]['Location'], '/')
+
+    def test_student_home_and_registration_hide_other_children(self):
+        cookie = self.student()
+        self.item('ONLY-MINE', 1); self.item('OTHER-SECRET', 2); self.item('HISTORY-SHARED', 0)
+        for path in ('/', '/?child=2', '/register?child=2'):
+            status, _, body = self.raw(path, cookie=cookie)
+            self.assertEqual(status, 200)
+            self.assertNotIn('小满', body)
+            self.assertNotIn('OTHER-SECRET', body)
+            self.assertNotIn("href='/admin", body)
+            self.assertNotIn('选其他本子', body)
+            self.assertIn('退出登录', body)
+        register = self.raw('/register?child=2', cookie=cookie)[2]
+        import re
+        lists = json.loads(re.search(r"id='sb-lists'>(.*?)</script>", register).group(1))
+        self.assertEqual(lists['children'], [{'id': 1, 'name': '小禾'}])
+        self.assertNotIn("<select id='entry-child'", register)
+        self.assertNotIn("type='radio' name='child_id'", register)
+
+    def test_student_management_forbidden_and_add_scope(self):
+        cookie = self.student()
+        for path in ('/admin', '/admin/children', '/admin/subjects', '/admin/items', '/admin/api-token', '/admin/unknown'):
+            for method in ('GET', 'POST'):
+                status, _, body = self.raw(path, method, cookie=cookie)
+                self.assertEqual(status, 403)
+                self.assertIn('回首页', body)
+        for path in ('/admin/login', '/admin/logout', '/admin/child/password', '/admin/child', '/admin/delete', '/admin/child/delete', '/admin/api-token/generate'):
+            self.assertEqual(self.raw(path, 'POST', {'password': app.ADMIN_PASSWORD, 'id': 1}, cookie)[0], 403)
+        for path in ('/add', '/admin/add'):
+            self.assertEqual(self.raw(path, 'POST', {'child_id': 2, 'title': 'forbidden'}, cookie)[0], 400)
+            self.assertEqual(self.raw(path, 'POST', {'child_id': 1, 'title': 'mine'}, cookie)[0], 303)
+        self.assertEqual([i['child_id'] for i in app.all_items()], [1, 1])
+
+    def test_student_items_done_uploads_ranges_and_gallery(self):
+        cookie = self.student()
+        ids = []
+        for cid in (1, 2, 0):
+            ident, _ = app.create_item({'child_id': str(cid), 'subject': '数学', 'title': f'fixture-{cid}'}, b'0123456789', f'image-{cid}.png', 'image/png')
+            ids.append(ident)
+        for ident, expected in zip(ids, (200, 404, 200)):
+            item = app.get_item(ident)
+            self.assertEqual(self.raw(f'/item?id={ident}&child=2', cookie=cookie)[0], expected)
+            for suffix in ('', '?download=1'):
+                self.assertEqual(self.raw('/uploads/' + item['stored'] + suffix, cookie=cookie)[0], expected)
+            expected_range = 206 if expected == 200 else 404
+            self.assertEqual(self.raw('/uploads/' + item['stored'], cookie=cookie, headers={'Range': 'bytes=0-1'})[0], expected_range)
+            self.assertEqual(self.raw('/done', 'POST', {'id': ident}, cookie)[0], 303 if expected == 200 else 404)
+        self.assertFalse(app.get_item(ids[1])['done'])
+        with app.session_db() as conn:
+            conn.execute('UPDATE items SET visible_at=? WHERE id=?', ('2999-01-01T00:00', ids[0]))
+        self.assertEqual(self.raw('/uploads/' + app.get_item(ids[0])['stored'], cookie=cookie)[0], 404)
+        self.assertEqual(self.raw('/done', 'POST', {'id': ids[0]}, cookie)[0], 404)
+        Path(app.UPLOAD_DIR, 'orphan.png').write_bytes(b'x')
+        self.assertEqual(self.raw('/uploads/orphan.png', cookie=cookie)[0], 404)
+        self.assertEqual(self.raw('/uploads/%2e%2e/app.py', cookie=cookie)[0], 404)
+        _, _, body = self.raw(f'/item?id={ids[2]}&child=2', cookie=cookie)
+        self.assertNotIn(app.get_item(ids[1])['stored'], body)
+
+    def test_student_ai_validation_and_batch_partial_failure(self):
+        cookie = self.student()
+        for path in ('/api/ai-parse', '/api/ai-voice'):
+            with patch.object(app, 'call_llm_parse') as llm, patch.object(app, 'call_speech_transcribe') as stt:
+                for cid in (2, 0, 999):
+                    status, _, body = self.raw(path, 'POST', {'child_id': cid, 'text': '数学'}, cookie)
+                    self.assertEqual((status, json.loads(body)['error']), (400, 'invalid_child'))
+                llm.assert_not_called(); stt.assert_not_called()
+        drafts = [{'title': 'mine', 'subject': '数学', 'child_id': 1}, {'title': 'other', 'subject': '数学', 'child_id': 2}]
+        status, _, body = self.raw('/api/ai-batch', 'POST', cookie=cookie, data=json.dumps({'drafts': drafts}), headers={'Content-Type': 'application/json'})
+        result = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(result['created']), 1)
+        self.assertEqual(result['failed'][0]['error'], 'invalid_child')
+        self.assertEqual([i['child_id'] for i in app.all_items()], [1])
+
+    def test_student_ai_success_limits_model_context(self):
+        cookie = self.student()
+        from unittest.mock import MagicMock
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({'choices': [{'message': {'content': json.dumps([{'title': '数学', 'subject': '数学', 'child_id': 2}])}}]}).encode()
+        with patch.multiple(app, LLM_API_KEY='fixture-only', STT_API_KEY='fixture-only'), patch('urllib.request.urlopen', return_value=response) as upstream, patch.object(app, 'call_speech_transcribe', return_value=(True, '', '数学')):
+            for path in ('/api/ai-parse', '/api/ai-voice'):
+                status, _, body = self.raw(path, 'POST', {'child_id': 1, 'text': '数学'}, cookie)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)['drafts'][0]['child_id'], 1)
+                request = upstream.call_args.args[0]
+                system = json.loads(request.data)['messages'][0]['content']
+                self.assertIn('小禾', system)
+                self.assertNotIn('小满', system)
+                self.assertNotIn('password_hash', system)
+        self.assertEqual(app.all_items(), [])  # Parsing never bypasses review.
+
+    def test_password_hash_status_validation_update_and_clear(self):
+        for password in ('', '12345'):
+            self.assertIn('至少需要 6 位', self.set_password(password=password)[2])
+        self.assertIn('未设密码', self.raw('/admin/children', cookie=self.cookie)[2])
+        cookie = self.student()
+        with app.session_db() as conn:
+            stored = conn.execute('SELECT password_hash FROM children WHERE id=1').fetchone()[0]
+        self.assertRegex(stored, r'^[0-9a-f]{32}:[0-9a-f]{64}$')
+        self.assertNotIn('fixture-only-password', self.raw('/admin/children', cookie=self.cookie)[2])
+        self.assertTrue(app.password_matches('fixture-only-password', stored))
+        self.set_password(password='fixture-only-replacement')
+        self.assertEqual(self.raw('/', cookie=cookie)[1]['Location'], '/login')
+        self.assertIn('名字或密码不对', self.raw('/login', 'POST', {'name': '小禾', 'password': 'fixture-only-password'})[2])
+        cookie = self.login(password='fixture-only-replacement')
+        self.set_password(clear=True)
+        self.assertEqual(self.raw('/', cookie=cookie)[1]['Location'], '/login')
+        self.assertIn('名字或密码不对', self.raw('/login', 'POST', {'name': '小禾', 'password': 'fixture-only-replacement'})[2])
+
+    def test_rename_keeps_password_delete_revokes(self):
+        cookie = self.student()
+        self.raw('/admin/child/rename', 'POST', {'id': 1, 'name': '虚构改名'}, self.cookie)
+        cookie2 = self.login(name='虚构改名')
+        self.assertEqual(self.raw('/', cookie=cookie)[0], 200)
+        item = self.item(child=1)
+        self.raw('/admin/child/delete', 'POST', {'id': 1}, self.cookie)
+        for value in (cookie, cookie2):
+            self.assertEqual(self.raw('/', cookie=value)[1]['Location'], '/login')
+        self.assertEqual(app.get_item(item)['child_id'], 0)
+
+    def test_session_cookie_flags_hash_expiry_and_logout(self):
+        self.set_password()
+        for headers, secure in (({}, False), ({'X-Forwarded-Proto': 'https'}, True)):
+            status, response, _ = self.raw('/login', 'POST', {'name': '小禾', 'password': 'fixture-only-password'}, headers=headers)
+            self.assertEqual(status, 303)
+            cookie = response['Set-Cookie']
+            for flag in ('HttpOnly', 'Path=/', 'SameSite=Lax', 'Max-Age=2592000'):
+                self.assertIn(flag, cookie)
+            self.assertEqual('Secure' in cookie, secure)
+            token = cookie.split(';')[0].split('=', 1)[1]
+            with app.session_db() as conn:
+                stored = conn.execute('SELECT token_hash FROM sessions WHERE role=? ORDER BY created DESC', ('student',)).fetchone()[0]
+            self.assertNotEqual(token, stored)
+            self.assertEqual(hashlib.sha256(token.encode()).hexdigest(), stored)
+        cookie = self.login()
+        self.raw('/logout', 'POST', cookie=cookie)
+        self.assertEqual(self.raw('/', cookie=cookie)[1]['Location'], '/login')
+        for created, role in (((date.today() - timedelta(days=31)).isoformat(), 'student'), (app.now_dt(), 'bogus'), ('corrupt', 'student')):
+            cookie = self.login()
+            hashed = hashlib.sha256(cookie.split('=', 1)[1].encode()).hexdigest()
+            with app.session_db() as conn:
+                conn.execute('UPDATE sessions SET created=?,role=? WHERE token_hash=?', (created, role, hashed))
+            self.assertEqual(self.raw('/', cookie=cookie)[1]['Location'], '/login')
+            with app.session_db() as conn:
+                self.assertIsNone(conn.execute('SELECT 1 FROM sessions WHERE token_hash=?', (hashed,)).fetchone())
+
+    def test_token_api_is_independent_of_session(self):
+        cookie = self.student()
+        with patch.object(app, 'API_TOKEN', 'fixture-token-only'):
+            for current in ('', cookie, self.cookie):
+                for path in ('/api/lists', '/api/items'):
+                    self.assertEqual(self.raw(path, cookie=current)[0], 401)
+                    self.assertEqual(self.raw(path, cookie=current, headers={'X-API-Token': 'fixture-token-only'})[0], 200)
+                self.assertEqual(self.raw('/api/items', 'POST', {'child_id': 2, 'title': 'token-created'}, current, {'X-API-Token': 'fixture-token-only'})[0], 201)
+            self.assertTrue(all(i['child_id'] == 2 for i in app.all_items()))
+            self.assertEqual(self.raw('/api/ai-parse', 'POST', {'child_id': 1}, headers={'X-API-Token': 'fixture-token-only'})[0], 401)
+
+    def test_old_database_additive_migration(self):
+        self.item('migration-preserved')
+        with app.session_db() as conn:
+            conn.execute('INSERT INTO api_tokens VALUES (?,?)', ('fixture-hash', app.now_dt()))
+            conn.execute('DROP TABLE sessions')
+            conn.execute('ALTER TABLE children RENAME TO children_new')
+            conn.execute('CREATE TABLE children (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)')
+            conn.execute('INSERT INTO children (id,name) SELECT id,name FROM children_new')
+            conn.execute('DROP TABLE children_new')
+            before = {table: [tuple(row) for row in conn.execute('SELECT * FROM ' + table)] for table in ('items', 'subjects', 'children', 'api_tokens')}
+        app.init_db(); app.init_db()
+        with app.session_db() as conn:
+            for table in before:
+                columns = 'id,name' if table == 'children' else '*'
+                self.assertEqual(sorted(before[table]), sorted(tuple(row) for row in conn.execute('SELECT ' + columns + ' FROM ' + table)))
+            self.assertEqual(conn.execute('SELECT DISTINCT password_hash FROM children').fetchall()[0][0], '')
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM sessions').fetchone()[0], 0)
+
+    def test_foreign_origin_and_active_upload_sandbox(self):
+        cookie = self.student()
+        self.assertEqual(self.raw('/done', 'POST', {'id': 1}, cookie, {'Origin': 'https://foreign.example'})[0], 403)
+        ident, _ = app.create_item({'child_id': '1'}, b'<script>danger()</script>', 'fixture.html', 'text/html')
+        _, headers, _ = self.raw('/uploads/' + app.get_item(ident)['stored'], cookie=cookie)
+        self.assertIn('sandbox', headers['Content-Security-Policy'])
+        self.assertIn('attachment;', headers['Content-Disposition'])
+        self.assertEqual(headers['X-Content-Type-Options'], 'nosniff')
 
 
 if __name__ == '__main__':

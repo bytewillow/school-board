@@ -2,7 +2,7 @@
 """作业板（零依赖，只用 Python 标准库）
 
 浏览：首页一个学科一个块，点学科看这门，点标题看详情。
-登记：/register 不需要密码，局域网内谁都可以登记作业、上传文件；
+登记：/register 需要登录，学生仅可登记自己的作业，家长可选择孩子；
       标题不填就用文件名，学科在管理里加，内容可以指定给某个孩子。
 管理：/admin 需要密码，只做删除、加孩子、加学科。
 API：POST /api/items，curl 和 iPhone 捷径都能直接传文件。
@@ -43,9 +43,13 @@ API：POST /api/items，curl 和 iPhone 捷径都能直接传文件。
           DATA_DIR（默认脚本旁的 data/，Docker 里用 /data）
 AI 录入：登记页文字 / 拍照先解析成草稿，逐条核对后经 /api/ai-batch 批量创建，草稿确认前不入库；
         外部 AI 走 /api/lists + /api/items（见 SKILL.md），令牌允许查列表、读取可见内容和创建，不能删除和管理；
-        Caddy 公开时只反代 /api/lists 和 /api/items，不要反代 /admin、/api/ai-parse、/api/ai-batch。
+        网页与 AI 录入使用会话；外部 API 令牌规则不变。HTTPS 反代部署见 docs/login.md。
 数据：SQLite + data/uploads/ 文件，备份时把 data/ 整个拷走即可。
 """
+import hmac
+from http.cookies import SimpleCookie
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import html
 import json
@@ -119,6 +123,16 @@ def db():
     return conn
 
 
+@contextmanager
+def session_db():
+    conn = db()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
 def migrate(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS items (
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
@@ -133,6 +147,12 @@ def migrate(conn):
         conn.execute("ALTER TABLE items ADD COLUMN child_id INTEGER NOT NULL DEFAULT 0")
     conn.execute("CREATE TABLE IF NOT EXISTS subjects (name TEXT PRIMARY KEY, ord INTEGER)")
     conn.execute("CREATE TABLE IF NOT EXISTS children (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(children)")]
+    if "password_hash" not in cols:
+        conn.execute("ALTER TABLE children ADD COLUMN password_hash TEXT DEFAULT ''")
+    conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY, role TEXT NOT NULL,
+        child_id INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL)""")
     conn.execute("CREATE TABLE IF NOT EXISTS api_tokens (token_hash TEXT PRIMARY KEY, created TEXT NOT NULL)")
 
 
@@ -214,12 +234,101 @@ def admin_token():
     return hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
 
 
+# Context-local presentation only; authorization always uses the request handler.
+VIEW_SESSION = ContextVar("view_session", default=None)
+SESSION_DAYS = 30
+
+
+def password_hash(password):
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 200000)
+    return salt.hex() + ':' + digest.hex()
+
+
+def password_matches(password, stored):
+    try:
+        salt, expected = stored.split(':')
+        digest = hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(salt), 200000)
+        return hmac.compare_digest(digest.hex(), expected)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def cookie_value(handler, name):
+    cookie = SimpleCookie()
+    try:
+        cookie.load(handler.headers.get('Cookie', ''))
+        return cookie[name].value if name in cookie else ''
+    except Exception:
+        return ''
+
+
+def get_session(handler):
+    token = cookie_value(handler, 'sb_session')
+    if not token:
+        return None
+    hashed = hashlib.sha256(token.encode()).hexdigest()
+    with session_db() as conn:
+        row = conn.execute('SELECT * FROM sessions WHERE token_hash=?', (hashed,)).fetchone()
+        if not row:
+            return None
+        try:
+            valid = datetime.fromisoformat(row['created']) > datetime.now() - timedelta(days=SESSION_DAYS)
+        except (ValueError, TypeError):
+            valid = False
+        valid = valid and row['role'] in ('parent', 'student')
+        if row['role'] == 'parent':
+            valid = valid and row['child_id'] == 0
+        elif row['role'] == 'student':
+            valid = valid and bool(conn.execute("SELECT 1 FROM children WHERE id=? AND password_hash != ''", (row['child_id'],)).fetchone())
+        if not valid:
+            conn.execute('DELETE FROM sessions WHERE token_hash=?', (hashed,))
+            return None
+        return {'role': row['role'], 'child_id': row['child_id']}
+
+
 def is_admin(handler):
-    cookie = handler.headers.get("Cookie", "")
-    for part in cookie.split(";"):
-        if part.strip().startswith("admin=") and part.strip()[6:] == admin_token():
-            return True
-    return False
+    # Keep legacy cookies for already-signed-in browsers and compatibility.
+    legacy = cookie_value(handler, 'admin')
+    return bool(legacy and hmac.compare_digest(legacy.encode(), admin_token().encode())) or (get_session(handler) or {}).get('role') == 'parent'
+
+
+def session_cookie(handler, token='', clear=False):
+    # Only trust this header behind a trusted reverse proxy; do not expose the backend
+    # to untrusted clients that can inject forwarded headers.
+    secure = '; Secure' if handler.headers.get('X-Forwarded-Proto', '').lower() == 'https' else ''
+    return f"sb_session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={0 if clear else SESSION_DAYS * 86400}" + secure
+
+
+def revoke_session(handler):
+    with session_db() as conn:
+        conn.execute('DELETE FROM sessions WHERE token_hash=?', (hashlib.sha256(cookie_value(handler, 'sb_session').encode()).hexdigest(),))
+
+
+def start_session(handler, role, child_id=0):
+    revoke_session(handler)
+    token = secrets.token_urlsafe(32)
+    with session_db() as conn:
+        conn.execute('INSERT INTO sessions VALUES (?,?,?,?)',
+                     (hashlib.sha256(token.encode()).hexdigest(), role, child_id, datetime.now().isoformat()))
+    return session_cookie(handler, token)
+
+
+def view_children():
+    children = get_children()
+    session = VIEW_SESSION.get()
+    if session and session['role'] == 'student':
+        return [c for c in children if c['id'] == session['child_id']]
+    return children
+
+
+def login_page(failed=False):
+    message = "<p role='alert'>名字或密码不对</p>" if failed else ''
+    return page('登录 - 作业板', "<div class='card'><h1>登录作业本</h1>" + message +
+                "<form method='post' action='/login'><label for='login-name'>孩子名字</label>"
+                "<input id='login-name' name='name' autocomplete='username' required>"
+                "<label for='login-password'>密码</label><input id='login-password' type='password' name='password' autocomplete='current-password' required>"
+                "<button class='full'>登录</button></form><p><a href='/admin'>家长登录</a></p></div>")
 
 
 def parse_urlencoded(handler, length):
@@ -525,7 +634,15 @@ transition:transform 300ms ease,box-shadow 300ms ease}
 
 
 def page(title, body):
-    return ("<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
+    session = VIEW_SESSION.get()
+    student = session and session["role"] == "student"
+    links = [("/", "首页", "🏠"), ("/register", "登记", "✏️")] if session else []
+    if session and not student:
+        links.append(("/admin", "管理", "⚙️"))
+    topnav = " ｜ ".join(f"<a href='{href}'>{label}</a>" for href, label, icon in links)
+    bottomnav = ''.join(f"<a href='{href}'><span>{icon}</span>{label}</a>" for href, label, icon in links)
+    logout = "<form method='post' action='/logout' class='session-bar'><button class='ghost small'>退出登录</button></form>" if student else ''
+    content = ("<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{esc(title)}</title><style>{CSS}</style>"
             "<link rel='stylesheet' href='/static/media.css'><script src='/static/media.js' defer></script>"
@@ -537,18 +654,17 @@ def page(title, body):
             "<meta name='apple-mobile-web-app-title' content='登记簿'>"
             "<meta name='apple-mobile-web-app-status-bar-style' content='default'></head><body>"
             "<a class='skip' href='#main'>跳到内容</a>"
-            "<nav class='topnav' aria-label='顶部导航'><a href='/'>首页</a> ｜ <a href='/register'>登记</a> ｜ <a href='/admin'>管理</a></nav>"
-            f"<main id='main'>{body}</main>"
-            "<nav class='bottomnav' aria-label='底部导航'><a href='/'><span>🏠</span>首页</a>"
-            "<a href='/register'><span>✏️</span>登记</a>"
-            "<a href='/admin'><span>⚙️</span>管理</a></nav>"
+            f"<nav class='topnav' aria-label='顶部导航'>{topnav}</nav>"
+            f"<main id='main'>{logout}{body}</main>"
+            f"<nav class='bottomnav' aria-label='底部导航'>{bottomnav}</nav>"
             "<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(function(){});}"
             "document.querySelectorAll('form').forEach(function(f){"
             "f.addEventListener('submit',function(e){"
             "if(f.dataset.submitting){e.preventDefault();return;}"
             "f.dataset.submitting='1';var b=f.querySelector('button');"
             "if(b){b.textContent='处理中…';}});});</script>"
-            "</body></html>").encode()
+            "</body></html>")
+    return content.encode()
 
 
 def contextual_page(title, body, child=0):
@@ -795,6 +911,8 @@ def add_form(subjects, children, action="/add", preselect_subject="", preselect_
                         "".join(f"<label class='chip'><input type='radio' name='child_id' required value='{c['id']}' "
                                 f"{'checked' if preselect_child == c['id'] else ''}> {esc(c['name'])}</label>"
                                 for c in children) + "</div></fieldset>")
+    if (VIEW_SESSION.get() or {}).get('role') == 'student':
+        child_radios = f"<input type='hidden' name='child_id' value='{preselect_child}'>"
     extra = ""
     if show_extra:
         extra = ("<label class='form-field' for='entry-visible'>到这个时间才显示（答案类建议填）</label>"
@@ -820,6 +938,9 @@ def add_form(subjects, children, action="/add", preselect_subject="", preselect_
 
 
 def kid_page(params):
+    session = VIEW_SESSION.get()
+    if session and session['role'] == 'student':
+        params = dict(params, child=[str(session['child_id'])])
     try:
         child = int(params.get("child", ["0"])[0])
     except ValueError:
@@ -827,7 +948,7 @@ def kid_page(params):
     subject = params.get("subject", [""])[0]
     view = "all"
     q = params.get("q", [""])[0].strip()
-    children = get_children()
+    children = view_children()
     if child and not any(c["id"] == child for c in children):
         child = 0
     if len(children) == 1 and not child:
@@ -916,7 +1037,7 @@ def kid_page(params):
 
 
 def register_page(msg="", preselect_subject="", preselect_child=None):
-    subjects, children = get_subjects(), get_children()
+    subjects, children = get_subjects(), view_children()
     api_help = """<details class='card'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>curl / iPhone 捷径上传（点开看）</summary>
 <p class='muted'>下面把 HOST 换成这台服务器的地址，例如 HOST:8765（换成你这台服务器的地址）。</p>
 <pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'># 取孩子和学科列表（给捷径做下拉）：GET http://HOST/api/lists
@@ -951,6 +1072,12 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
     context_html = ("<div class='card' id='registration-context' hidden><div class='context-copy'><label for='entry-child'>本次登记给</label>"
                     f"<select id='entry-child' aria-label='本次登记的孩子'>{context_options}</select></div>"
                     "<p class='form-note'>各录入方式自动沿用，不用重复姓名。切换只影响新内容；已有草稿可逐条改归属。</p></div>")
+    session = VIEW_SESSION.get()
+    if session and session['role'] == 'student':
+        context_html = (f"<div class='card' id='registration-context' hidden><p>本次登记给 {esc(children[0]['name'])}</p>"
+                        f"<input id='entry-child' type='hidden' value='{preselect_child}'></div>")
+    if session and session['role'] == 'student':
+        api_help = ''
     message_html = f"<p role='status'>{esc(msg)}</p>" if msg else ""
     body = ("<link rel='stylesheet' href='/static/entry.css'><div id='registration'><header class='entry-header'><h1>把今天的作业记下来</h1>"
             "<p class='muted'>手动记一条，或说一段、拍张照，核对后再创建。</p></header>"
@@ -961,15 +1088,16 @@ child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是�
             "<section id='manual-entry' class='entry-section card'><p class='entry-step'>填写内容</p><h2>手动登记</h2>"
             + add_form(subjects, children, "/add", preselect_subject, preselect_child) + "</section>"
             + "<section id='ai-entry' class='entry-section'>" + ai_entry_html(subjects, children) + "</section>"
-            + api_help +
-            "<p><a class='back' href='/'>← 回首页</a> <a class='back' href='/admin'>去管理</a></p>"
+            + api_help
+            + ("<p><a class='back' href='/'>← 回首页</a></p>" if (VIEW_SESSION.get() or {}).get('role') == 'student' else
+               "<p><a class='back' href='/'>← 回首页</a> <a class='back' href='/admin'>去管理</a></p>") +
             "<script>(function(){var buttons=document.querySelectorAll('[data-entry]');"
             "function show(mode){document.getElementById('manual-entry').hidden=mode!=='manual';document.getElementById('ai-entry').hidden=mode!=='ai';"
             "buttons.forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.entry===mode));});}"
             "document.querySelector('.entry-switch').hidden=false;buttons.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.entry);});});show('manual');})();</script>")
     body += """<script>(function(){
 var context=document.getElementById('entry-child');
-var radios=document.querySelectorAll('#manual-entry input[name="child_id"]');
+var radios=document.querySelectorAll('#manual-entry input[type="radio"][name="child_id"]');
 if(radios.length) radios[0].closest('fieldset').hidden=true;
 document.getElementById('registration-context').hidden=false;
 context.addEventListener('change',function(){
@@ -1019,9 +1147,11 @@ def admin_page(msg=""):
     return page("管理 - 作业板", body)
 
 
-def admin_children_page():
+def admin_children_page(msg=""):
     items, children = all_items(), get_children()
     child_rows = ""
+    with session_db() as conn:
+        password_states = {r['id']: bool(r['password_hash']) for r in conn.execute('SELECT id,password_hash FROM children')}
     for c in children:
         n = sum(1 for i in items if i.get("child_id") == c["id"])
         child_rows += (f"<div class='arow'>"
@@ -1033,7 +1163,14 @@ def admin_children_page():
                        f"<form method='post' action='/admin/child/delete' style='margin:0'>"
                        f"<input type='hidden' name='id' value='{c['id']}'>"
                        "<button class='danger small'>删除</button></form></div>")
+        child_rows += (f"<div class='card'><p>{esc(c['name'])} · {'已设密码' if password_states[c['id']] else '未设密码'}</p>"
+                       "<form class='inline-form' method='post' action='/admin/child/password'>"
+                       f"<input type='hidden' name='id' value='{c['id']}'>"
+                       "<input type='password' name='password' aria-label='新密码，至少6位' placeholder='新密码，至少6位' autocomplete='new-password'>"
+                       "<button name='operation' value='set'>设置 / 更新</button>"
+                       "<button class='ghost' name='operation' value='clear'>清除密码</button></form></div>")
     body = (admin_top("/admin", "← 回管理")
+            + (f"<p role='status'>{esc(msg)}</p>" if msg else '')
             + "<h3>孩子管理</h3>"
             + "<form class='inline-form' method='post' action='/admin/child'>"
             + "<input name='name' aria-label='孩子名字' placeholder='孩子名字，如：小明' required>"
@@ -1158,7 +1295,7 @@ def admin_api_token_page(new_token=""):
             + "<button class='danger'>吊销数据库令牌</button></form>"
             + "<details class='card'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>给 AI 的配置（点开看）</summary>"
             + "<p class='muted'>把 HOST 换成这台服务器的地址；局域网用 LAN 地址，Tailscale 用 Tailscale 地址，"
-            + "公开域名走 Caddy 时只反代 /api/lists 和 /api/items，不要反代 /admin、/api/ai-parse、/api/ai-batch。</p>"
+            + "公开域名使用 HTTPS；网页和 AI 录入需要登录，外部 API 仍使用 X-API-Token。</p>"
             + "<pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'>"
             + "GET http://HOST/api/lists\n"
             + "  Header: X-API-Token: &lt;令牌&gt;\n"
@@ -1212,9 +1349,9 @@ def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
               "child_id（页面选定的孩子 id）、due（YYYY-MM-DD，没有明确日期就留空）、body（正文）。"
               f"今天是 {today()}，相对日期（明天、下周五等）要换算成绝对日期。"
               f"学科列表：{json.dumps(get_subjects(), ensure_ascii=False)}。"
-              f"孩子列表：{json.dumps(get_children(), ensure_ascii=False)}。")
+              f"孩子列表：{json.dumps(view_children(), ensure_ascii=False)}。")
     if default_child is not None:
-        target = child_name(get_children(), default_child) if default_child else "共享"
+        target = child_name(view_children(), default_child) if default_child else "共享"
         system += (f"本次登记对象已由用户在页面选定：{target}（child_id={default_child}）。"
                    "所有草稿都使用此 child_id，不根据正文姓名猜测或改变归属，用户会在核对页自行修改。")
     if image_bytes:
@@ -1250,7 +1387,7 @@ def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
         return False, "llm_bad_json", "模型没有返回可解析的 JSON 数组，重试一次或改用粘贴 JSON。"
     if not isinstance(raw_list, list):
         return False, "llm_bad_json", "模型返回的不是数组，重试一次或改用粘贴 JSON。"
-    subjects, children = get_subjects(), get_children()
+    subjects, children = get_subjects(), view_children()
     drafts = [validate_draft(r, subjects, children, default_child or 0) for r in raw_list]
     if default_child is not None:
         for draft in drafts:
@@ -1300,7 +1437,7 @@ def call_speech_transcribe(audio_bytes, audio_ctype):
 
 def ai_entry_html(subjects, children):
     """登记页 AI 录入卡：文字 / 拍照先解析成草稿，逐条核对后批量创建；粘贴 JSON 是不花 API 钱的免费路径。"""
-    lists_json = json.dumps({"subjects": subjects, "children": children}, ensure_ascii=False).replace("<", "\\u003c")
+    lists_json = json.dumps({"subjects": subjects, "children": children, "locked_child": (VIEW_SESSION.get() or {}).get("role") == "student"}, ensure_ascii=False).replace("<", "\\u003c")
     js = r"""
 var lists = JSON.parse(document.getElementById('sb-lists').textContent);
 var kinds = [['notice','通知'],['homework','作业'],['material','学习资料'],['answer','答案'],['listening','听力'],['announcement','提醒']];
@@ -1315,17 +1452,19 @@ function renderDrafts(drafts) {
     var subj = sel([['','学科（必选）']].concat(lists.subjects.map(function(s) { return [s, s]; })), d.subject || '');
     var kind = sel([['','类型（可选）']].concat(kinds), d.kind || '');
     var child = sel([['','请选择孩子']].concat(lists.children.map(function(c) { return [String(c.id), c.name]; })), d.child_id || '');
+    if (lists.locked_child) { child = mk('input'); child.type = 'hidden'; child.value = (d.child_id === undefined || d.child_id === null || d.child_id === '') ? lists.children[0].id : d.child_id; }
     var due = mk('input'); due.type = 'date'; due.value = d.due || '';
     var body = mk('textarea'); body.value = d.body || ''; body.placeholder = '正文';
     var del = mk('button'); del.className = 'danger small'; del.textContent = '删这条草稿'; del.type = 'button';
     del.onclick = function() { card.remove(); };
     function field(text, input) { var label = mk('label', text); label.appendChild(input); card.appendChild(label); }
     var checkLabel = mk('label', ' 创建这条草稿'); checkLabel.prepend(chk); card.appendChild(checkLabel);
-    field('标题', title); field('学科（必选）', subj); field('类型', kind); field('给谁', child); field('截止日期', due); field('正文', body);
+    field('标题', title); field('学科（必选）', subj); field('类型', kind); if (lists.locked_child) { card.appendChild(mk('p', '本次登记给 ' + lists.children[0].name)); card.appendChild(child); } else { field('给谁', child); } field('截止日期', due); field('正文', body);
     var error = mk('p'); error.className = 'draft-error'; error.setAttribute('role', 'alert'); card.appendChild(error); card.appendChild(del);
     card._draft = {chk: chk, title: title, subj: subj, kind: kind, child: child, due: due, body: body, error: error};
     box.appendChild(card);
     if (!d.subject) { error.textContent = '请选择学科后再创建。'; }
+    if (lists.locked_child && String(child.value) !== String(lists.children[0].id)) { chk.checked = false; error.textContent = '这条草稿不属于当前本子，请删除后重新录入。'; }
   });
   document.getElementById('ai-status').textContent = drafts.length ? ('已生成 ' + drafts.length + ' 条草稿，核对后点批量创建。') : '没有生成草稿。';
 }
@@ -1355,6 +1494,7 @@ document.getElementById('ai-json-btn').onclick = function() {
     var drafts = arr.map(function(d) {
       var subj = subjects.indexOf(d.subject) >= 0 ? d.subject : '';
       var cid = parseInt(document.getElementById('entry-child').value, 10);
+      if (lists.locked_child && Object.prototype.hasOwnProperty.call(d, 'child_id')) cid = d.child_id;
       return {title: d.title || '', subject: subj, kind: d.kind || '', child_id: cid, due: /^\d{4}-\d{2}-\d{2}$/.test(d.due || '') ? d.due : '', body: d.body || ''};
     });
     renderDrafts(drafts);
@@ -1429,9 +1569,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_html(self, data, status=200, cookie=None):
         self.send_response(status)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Type", "text/html; charset=utf-8")
         if cookie:
-            self.send_header("Set-Cookie", cookie)
+            for value in ([cookie] if isinstance(cookie, str) else cookie):
+                self.send_header("Set-Cookie", value)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -1439,6 +1581,7 @@ class Handler(BaseHTTPRequestHandler):
     def send_json(self, obj, status=200):
         data = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(status)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -1448,13 +1591,49 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(303)
         self.send_header("Location", loc)
         if cookie:
-            self.send_header("Set-Cookie", cookie)
+            for value in ([cookie] if isinstance(cookie, str) else cookie):
+                self.send_header("Set-Cookie", value)
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def authorize(self, path, post=False):
+        self.session = get_session(self)
+        # Legacy admin has parent privileges, including AI, for compatibility.
+        if is_admin(self):
+            self.session = {'role': 'parent', 'child_id': 0}
+        VIEW_SESSION.set(self.session)
+        student = self.session and self.session['role'] == 'student'
+        if path.startswith('/admin') and not (post and path == '/admin/add') and student:
+            self.send_html(error_page('无法访问管理页', '请回首页继续查看作业。'), 403)
+            return False
+        if post and path.startswith('/admin/') and path not in ('/admin/login', '/admin/add') and not self.session:
+            self.redirect('/admin')
+            return False
+        if path in ('/api/ai-parse', '/api/ai-batch', '/api/ai-voice') and not self.session:
+            self.send_json({'ok': False, 'error': 'unauthorized'}, 401)
+            return False
+        protected = path in ('/', '/register', '/item', '/done', '/add', '/admin/add', '/logout') or path.startswith('/uploads/')
+        if protected and not self.session:
+            self.redirect('/login')
+            return False
+        return True
+
+    def can_view_item(self, item):
+        if not item:
+            return False
+        return not self.session or self.session['role'] != 'student' or item['child_id'] in (0, self.session['child_id'])
 
     def do_GET(self):
         u = urlparse(self.path)
         params = parse_qs(u.query)
+        if not self.authorize(u.path):
+            return
+        if u.path == '/login':
+            if self.session:
+                self.redirect('/admin' if self.session['role'] == 'parent' else '/')
+            else:
+                self.send_html(login_page())
+            return
         if u.path in ("/static/entry.css", "/static/voice.js", "/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
             ctype = {"json": "application/manifest+json", "js": "application/javascript",
                      "svg": "image/svg+xml", "png": "image/png", "mjs": "application/javascript", "css": "text/css"}.get(u.path.rsplit(".", 1)[-1], "image/png")
@@ -1483,6 +1662,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/register":
             raw_child = params.get("child", [None])[0]
             child = None if raw_child is None else (int(raw_child) if raw_child.isdigit() else -1)
+            if self.session['role'] == 'student':
+                child = self.session['child_id']
             self.send_html(register_page("", params.get("subject", [""])[0], child))
             return
         if u.path == "/api/lists":
@@ -1498,9 +1679,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api":
             self.send_json({"ok": True, "post": "/api/items",
                             "lists": "/api/lists",
-                            "ai_parse": "/api/ai-parse (LAN only, not via Caddy)",
-                            "ai_batch": "/api/ai-batch (LAN only, not via Caddy)",
-                            "ai_voice": "/api/ai-voice (LAN only, child_id + audio multipart, no auto-create)",
+                            "ai_parse": "/api/ai-parse (login session required)",
+                            "ai_batch": "/api/ai-batch (login session required)",
+                            "ai_voice": "/api/ai-voice (login session required, child_id + audio multipart, no auto-create)",
                             "fields": "title(可选，不填用文件名), subject, subject_new, kind(不填时：音频->听力，PDF->学习资料，其余->通知), body, link_url, due, visible_at, pinned, child_id",
                             "example": "curl -F \"file=@数学练习.pdf\" -F \"subject=数学\" -F \"child_id=1\" http://HOST:8765/api/items"})
             return
@@ -1530,24 +1711,26 @@ class Handler(BaseHTTPRequestHandler):
                 it = get_item(int(params.get("id", ["0"])[0]))
             except ValueError:
                 it = None
-            if not it or (it["visible_at"] and it["visible_at"] > now_dt()):
+            if not self.can_view_item(it) or (it["visible_at"] and it["visible_at"] > now_dt()):
                 self.send_html(error_page("没找到这条内容", "它可能不存在，或者还没到设定的显示时间。"), 404)
                 return
             try:
                 child = int(params.get("child", ["0"])[0])
             except ValueError:
                 child = 0
+            if self.session['role'] == 'student':
+                child = self.session['child_id']
             back = (f"<p><a class='back' href='/{qs(child, subject=it['subject'])}'>"
                     f"← 回{esc(it['subject'])}</a></p>")
-            self.send_html(contextual_page(it["title"], back + item_card(it, get_children(), detail=True, child=child), child))
+            self.send_html(contextual_page(it["title"], back + item_card(it, view_children(), detail=True, child=child), child))
             return
         if u.path == "/admin":
             if not is_admin(self):
-                form = ("<div class='card'><h3>管理登录</h3>"
+                form = ("<div class='card'><h3>家长登录</h3>"
                         "<form method='post' action='/admin/login'>"
                         "<input type='password' name='password' aria-label='管理密码' placeholder='管理密码' required>"
                         "<button class='full'>登录</button></form></div>")
-                self.send_html(page("管理登录", form))
+                self.send_html(page("家长登录", form))
                 return
             self.send_html(admin_page())
             return
@@ -1576,6 +1759,12 @@ class Handler(BaseHTTPRequestHandler):
             if "/" in name or ".." in name or not os.path.isfile(os.path.join(UPLOAD_DIR, name)):
                 self.send_html(error_page("文件找不到了", "这个附件可能已被删除，回到首页重新找一下。"), 404)
                 return
+            if self.session['role'] == 'student':
+                with session_db() as conn:
+                    owners = conn.execute('SELECT * FROM items WHERE stored=?', (name,)).fetchall()
+                if not any(self.can_view_item(row) and (not row['visible_at'] or row['visible_at'] <= now_dt()) for row in owners):
+                    self.send_html(error_page('文件找不到了', '这个附件可能已被删除，回到首页重新找一下。'), 404)
+                    return
             path = os.path.join(UPLOAD_DIR, name)
             mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
             size = os.path.getsize(path)
@@ -1598,10 +1787,13 @@ class Handler(BaseHTTPRequestHandler):
                 partial = True
             self.send_response(206 if partial else 200)
             self.send_header("Content-Type", mime)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Accept-Ranges", "bytes")
             if partial:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-            if parse_qs(urlparse(self.path).query).get("download"):
+            if parse_qs(urlparse(self.path).query).get("download") or mime in ('text/html', 'image/svg+xml', 'application/xhtml+xml', 'application/xml', 'text/xml'):
+                self.send_header('Content-Security-Policy', "sandbox; default-src 'none'")
                 it = None
                 conn = db()
                 row = conn.execute("SELECT filename FROM items WHERE stored=?", (name,)).fetchone()
@@ -1652,15 +1844,33 @@ class Handler(BaseHTTPRequestHandler):
         self.redirect(redirect_to)
         return item_id, title
 
-    def valid_entry_child(self, fields):
+    def valid_entry_child(self, fields, token_api=False):
         try:
             child = int(fields.get("child_id") or fields.get("child") or 0)
         except (TypeError, ValueError):
+            return False
+        if not token_api and self.session and self.session['role'] == 'student' and child != self.session['child_id']:
             return False
         return any(c["id"] == child for c in get_children())
 
     def do_POST(self):
         u = urlparse(self.path)
+        if not self.authorize(u.path, post=True):
+            return
+        # SameSite=Lax prevents cross-site form cookies; reject explicit foreign
+        # Origins too (including sibling subdomains). Token APIs retain CLI behavior.
+        origin = self.headers.get('Origin')
+        if origin and u.path != '/api/items' and urlparse(origin).netloc != self.headers.get('Host'):
+            self.send_html(error_page('请求无效', '请从本站页面重新操作。'), 403)
+            return
+        if u.path == '/login' and self.session:
+            self.redirect('/admin' if self.session['role'] == 'parent' else '/')
+            return
+        if u.path in ('/logout', '/admin/logout'):
+            revoke_session(self)
+            self.redirect('/admin' if u.path == '/admin/logout' else '/login',
+                          [session_cookie(self, clear=True), 'admin=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'])
+            return
         # 文件过大先拦住，不生成一条空内容：这是出错态，不是静默成功。
         try:
             clen = int(self.headers.get("Content-Length", "0") or 0)
@@ -1683,7 +1893,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"ok": False, "error": "unauthorized"}, 401)
                     return
             fields, file_bytes, filename, file_ctype = self.read_form()
-            if not self.valid_entry_child(fields):
+            if not self.valid_entry_child(fields, token_api=True):
                 self.send_json({"ok": False, "error": "invalid_child", "message": "请选择有效的孩子；新登记不再支持共享。"}, 400)
                 return
             item_id, title = create_item(fields, file_bytes, filename, file_ctype)
@@ -1763,6 +1973,10 @@ class Handler(BaseHTTPRequestHandler):
                 item_id = int(fields.get("id", "0"))
             except ValueError:
                 item_id = 0
+            it = get_item(item_id)
+            if not self.can_view_item(it) or (self.session['role'] == 'student' and it['visible_at'] and it['visible_at'] > now_dt()):
+                self.send_html(error_page('没找到这条内容', '它可能不存在，或者还没到设定的显示时间。'), 404)
+                return
             conn = db()
             conn.execute("UPDATE items SET done = 1 - done WHERE id=?", (item_id,))
             conn.commit()
@@ -1771,17 +1985,25 @@ class Handler(BaseHTTPRequestHandler):
             back = ref.path + ("?" + ref.query if ref.query else "")
             self.redirect(back if back.startswith("/") else "/")
             return
-        if u.path == "/admin/login":
-            if fields.get("password") == ADMIN_PASSWORD:
-                self.redirect("/admin", f"admin={admin_token()}; Path=/; HttpOnly")
+        if u.path == '/login':
+            with session_db() as conn:
+                row = conn.execute('SELECT id,password_hash FROM children WHERE name=?', ((fields.get('name') or '').strip(),)).fetchone()
+            # Dummy PBKDF2 keeps absent/unconfigured names on the same expensive path.
+            stored = row['password_hash'] if row and row['password_hash'] else '00' * 16 + ':' + '00' * 32
+            matches = password_matches(fields.get('password', ''), stored)
+            if row and row['password_hash'] and matches:
+                self.redirect('/', start_session(self, 'student', row['id']))
             else:
-                self.send_html(error_page("密码不对", "管理密码不对，请重试；登记不需要密码。"))
+                self.send_html(login_page(True))
             return
-        if u.path == "/admin/logout":
-            self.redirect("/admin", "admin=; Path=/; Max-Age=0")
+        if u.path == "/admin/login":
+            if hmac.compare_digest(fields.get("password", "").encode(), ADMIN_PASSWORD.encode()):
+                self.redirect("/admin", start_session(self, 'parent'))
+            else:
+                self.send_html(error_page("密码不对", "管理密码不对，请重试。"))
             return
         if u.path in ("/add", "/admin/add"):
-            # 登记开放：谁都可以登记；但必须属于具体孩子。
+            # 登录后才能登记；学生提交不同 child_id 一致返回 400，不代改归属。
             if not self.valid_entry_child(fields):
                 self.send_html(error_page("请选择孩子", "登记对象缺失或已失效。未保存内容，请返回登记页选择有效孩子；不再支持新建共享内容。"), 400)
                 return
@@ -1790,11 +2012,28 @@ class Handler(BaseHTTPRequestHandler):
                 child = int(fields.get("child_id") or 0)
             except ValueError:
                 child = 0
-            self.redirect("/admin" if u.path == "/admin/add" else f"/{qs(child)}")
+            self.redirect("/admin" if u.path == "/admin/add" and self.session["role"] == "parent" else f"/{qs(child)}")
             return
         if not is_admin(self):
             self.send_response(403)
             self.end_headers()
+            return
+        if u.path == '/admin/child/password':
+            try:
+                cid = int(fields.get('id', '0'))
+            except ValueError:
+                cid = 0
+            password = fields.get('password', '')
+            clearing = fields.get('operation') == 'clear'
+            if not clearing and len(password) < 6:
+                self.send_html(admin_children_page('密码至少需要 6 位，尚未修改。'))
+                return
+            with session_db() as conn:
+                exists = conn.execute('SELECT 1 FROM children WHERE id=?', (cid,)).fetchone()
+                if exists:
+                    conn.execute('UPDATE children SET password_hash=? WHERE id=?', ('' if clearing else password_hash(password), cid))
+                    conn.execute('DELETE FROM sessions WHERE child_id=?', (cid,))
+            self.send_html(admin_children_page(('密码已清除。' if clearing else '密码已更新。') if exists else '孩子不存在，尚未修改。'))
             return
         if u.path == "/admin/api-token/generate":
             token = "sb_" + secrets.token_urlsafe(24)
@@ -1847,6 +2086,7 @@ class Handler(BaseHTTPRequestHandler):
                 cid = 0
             conn = db()
             conn.execute("UPDATE items SET child_id=0 WHERE child_id=?", (cid,))
+            conn.execute("DELETE FROM sessions WHERE child_id=?", (cid,))
             conn.execute("DELETE FROM children WHERE id=?", (cid,))
             conn.commit()
             conn.close()
