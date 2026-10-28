@@ -304,6 +304,8 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(app.all_items(), [])
         children = json.loads(self.request('/api/lists')[1])['children']
         self.assertEqual([c['id'] for c in children], [1,2])
+        kinds = json.loads(self.request('/api/lists')[1])['kinds']
+        self.assertEqual([(k['code'], k['label']) for k in kinds], list(app.KINDS.items()))
         # A pre-upgrade shared record stays intact, visible in both books, no migration.
         item = self.item('历史共享', child=0)
         app.init_db()

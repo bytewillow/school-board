@@ -1041,19 +1041,20 @@ def register_page(msg="", preselect_subject="", preselect_child=None):
     subjects, children = get_subjects(), view_children()
     api_help = """<details class='card'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>curl / iPhone 捷径上传（点开看）</summary>
 <p class='muted'>下面把 HOST 换成这台服务器的地址，例如 HOST:8765（换成你这台服务器的地址）。</p>
-<pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'># 取孩子和学科列表（给捷径做下拉）：GET http://HOST/api/lists
-# 返回 {"children": [{"id": 1, "name": "孩子名字"}, ...], "subjects": ["语文", ...]}
+<pre style='white-space:pre-wrap;word-break:break-all;font-size:14px'># 取孩子、学科和类型列表（给捷径做下拉）：GET http://HOST/api/lists
+# 返回 {"children": [{"id": 1, "name": "孩子名字"}, ...], "subjects": ["语文", ...],
+#       "kinds": [{"code": "homework", "label": "作业"}, ...]}
 # 传一个文件，标题不填就用文件名；kind 不填时音频自动是听力、PDF 自动是学习资料
 curl -F "file=@/path/数学练习.pdf" -F "subject=数学" -F "child_id=1" http://HOST/api/items
 
 # 只传文字 / 链接
 curl -d "title=本周通知&subject=语文&body=周五听写&child_id=1" http://HOST/api/items</pre>
 <p>iPhone 捷径做法：分享菜单 → 新建捷径 → 接收“文件/图像/PDF”→
-先“获取 URL 内容” GET http://HOST/api/lists，取字典里的 subjects 和 children
-各做一个“从列表中选取”（孩子选 id、学科选名字），再“获取 URL 内容”选 POST、
+先“获取 URL 内容” GET http://HOST/api/lists，取字典里的 subjects、children 和 kinds
+各做一个“从列表中选取”（孩子选 id、学科选名字、类型选 label 后取对应的 code），再“获取 URL 内容”选 POST、
 表单，地址填 http://HOST/api/items，表单里 file=捷径输入、subject=上一步选的学科、
 child_id=上一步选的孩子 id；kind 不用填，MP3 这类音频自动是听力、PDF 自动是学习资料，
-想指定类型时再填 kind（notice/homework/material/answer/listening/announcement）；
+想指定类型时再填 kind（从 lists 的 kinds 里取 code，别填中文 label）；
 再把这个捷径加到分享菜单，以后在微信里长按文件 → 分享 → 这个捷径，
 一步就登记进来了，不用先存文件再打开网页。手机须和服务器在同一局域网，
 或都连着 Tailscale。</p>
@@ -1795,7 +1796,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
             self.send_json({"ok": True,
                             "children": [{"id": c["id"], "name": c["name"]} for c in get_children()],
-                            "subjects": get_subjects()})
+                            "subjects": get_subjects(),
+                            "kinds": [{"code": k, "label": v} for k, v in KINDS.items()]})
             return
         if u.path == "/api":
             self.send_json({"ok": True, "post": "/api/items",

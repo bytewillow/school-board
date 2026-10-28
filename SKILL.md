@@ -9,8 +9,9 @@ token for each setup, and the agent must use them only for that setup.
 
 - `GET http://HOST/api/lists`, with header `X-API-Token: <token>` when a token
   is configured.
-- The response returns `children` (real children only, each with `id` and `name`)
-  and `subjects` (for example `["语文", "数学", "英语", ...]`).
+- The response returns `children` (real children only, each with `id` and `name`),
+  `subjects` (for example `["语文", "数学", "英语", ...]`), and `kinds` (each with
+  `code` and `label`, for example `{"code": "homework", "label": "作业"}`).
 - Use those exact values and nothing else. New entries must belong to a real child. `0` is no longer accepted for creation;
   historical shared records remain readable without migration.
 - If the lists call returns 401, stop and ask the user for a valid token.
