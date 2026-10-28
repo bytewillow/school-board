@@ -38,7 +38,7 @@ errors=[]
 with tempfile.TemporaryDirectory(prefix='board-voice-test-') as directory, ExitStack() as stack:
     upstream = ThreadingHTTPServer(('127.0.0.1',0),Provider)
     base_up = f'http://127.0.0.1:{upstream.server_port}/v1'
-    stack.enter_context(patch.multiple(app, DATA_DIR=directory, UPLOAD_DIR=str(Path(directory)/'uploads'), DB_PATH=str(Path(directory)/'board.db'), API_TOKEN='', LLM_API_KEY='fixture-only', STT_API_KEY='fixture-only', LLM_BASE_URL=base_up, STT_BASE_URL=base_up))
+    stack.enter_context(patch.multiple(app, DATA_DIR=directory, UPLOAD_DIR=str(Path(directory)/'uploads'), DB_PATH=str(Path(directory)/'board.db'), ADMIN_PASSWORD='fixture-parent-only', API_TOKEN='', LLM_API_KEY='fixture-only', STT_API_KEY='fixture-only', LLM_BASE_URL=base_up, STT_BASE_URL=base_up))
     app.init_db()
     with app.db() as conn:
         conn.executemany('INSERT INTO children (id,name) VALUES (?,?)',[(1,'小禾'),(2,'小满')])
@@ -57,6 +57,7 @@ with tempfile.TemporaryDirectory(prefix='board-voice-test-') as directory, ExitS
         for width in (320,390,834,1280):
             page=browser.new_page(viewport={'width':width,'height':900},has_touch=True,is_mobile=width<760,reduced_motion='reduce')
             page.on('pageerror',lambda error:errors.append(str(error)))
+            page.request.post(base+'/admin/login', form={'password': app.ADMIN_PASSWORD})
             page.goto(base+'/register')
             expect(page.locator('h1')).to_have_text('给哪个孩子登记？')
             page.get_by_role('link',name='给小满登记',exact=True).click()
@@ -127,6 +128,7 @@ with tempfile.TemporaryDirectory(prefix='board-voice-test-') as directory, ExitS
             page.close()
         # Denied permission fallback and file-upload auto-parse.
         page=browser.new_page(viewport={'width':390,'height':844})
+        page.request.post(base+'/admin/login', form={'password': app.ADMIN_PASSWORD})
         page.add_init_script("navigator.mediaDevices.getUserMedia=()=>Promise.reject(new DOMException('denied','NotAllowedError'))")
         page.goto(base+'/register?child=1');page.locator('[data-entry="ai"]').click();page.locator('#voice-start').click()
         expect(page.locator('#voice-status')).to_contain_text('权限未获允许')
@@ -137,6 +139,7 @@ with tempfile.TemporaryDirectory(prefix='board-voice-test-') as directory, ExitS
         page.close()
         # No MediaRecorder => don't offer a broken record button; file/text remain available.
         page=browser.new_page()
+        page.request.post(base+'/admin/login', form={'password': app.ADMIN_PASSWORD})
         page.add_init_script('window.MediaRecorder=undefined')
         page.goto(base+'/register?child=1');page.locator('[data-entry="ai"]').click()
         expect(page.locator('#voice-start')).to_be_disabled()

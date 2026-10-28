@@ -18,6 +18,7 @@ with sync_playwright() as p:
     for width in (1440, 390, 320):
         page = browser.new_page(viewport={'width': width, 'height': 900 if width > 700 else 844}, is_mobile=width < 700, has_touch=width < 700)
         page.on('pageerror', lambda error: errors.append(str(error)))
+        page.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
         page.goto(item_path('虚构示例 · 图形一'))
         page.locator('.image-open').click()
         dialog = page.locator('.media-viewer')
@@ -93,6 +94,7 @@ with sync_playwright() as p:
         page.close()
     # Corrupt PDF, broken image and failed audio fetch all retain usable fallback links.
     page = browser.new_page(service_workers='block')
+    page.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(item_path('虚构示例 · 阅读练习'))
     page.route('**/uploads/*.pdf', lambda route: route.fulfill(status=200, body=b'not a pdf', content_type='application/pdf'))
@@ -111,6 +113,7 @@ with sync_playwright() as p:
     assert page.locator('audio').evaluate('a => a.controls')
     page.close()
     native = browser.new_page(java_script_enabled=False)
+    native.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
     native.goto(item_path('虚构示例 · 12 秒试听音'))
     assert native.locator('audio').evaluate('a => a.hasAttribute("controls")')
     native.goto(item_path('虚构示例 · 阅读练习'))
