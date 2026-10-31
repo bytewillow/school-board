@@ -62,10 +62,34 @@ class BoardTests(unittest.TestCase):
                 conn.execute('UPDATE items SET done=1 WHERE id=?', (item_id,))
         return item_id
 
+    def test_paper_progress_uses_real_visible_homework(self):
+        self.item('已完成', done=True)
+        self.item('待完成')
+        self.item('别人的作业', child=2, done=True)
+        self.item('通知不算作业', kind='notice')
+        self.item('未到显示时间', visible_at='2999-01-01T12:00')
+        # A shared historical homework counts once, just as it does in the notebook.
+        self.item('历史共享', child=0, done=True)
+        status, body = self.request('/?child=1')
+        self.assertEqual(status, 200)
+        self.assertIn("aria-valuenow='67'", body)
+        self.assertIn("已完成 2 / 3 项作业", body)
+        self.assertIn("data-focus-timer data-child='1'", body)
+        self.assertIn('非今日统计', body)
+        self.assertNotIn("alert('时间到", body)
+
+    def test_paper_empty_progress_is_not_completion(self):
+        status, body = self.request('/?child=1')
+        self.assertEqual(status, 200)
+        self.assertIn("aria-valuenow='0'", body)
+        self.assertIn('还没有作业，先登记一项吧', body)
+
     def test_static_media_allowlist(self):
         for path, mime in [('/static/entry.css', 'text/css'),
                            ('/static/media.js', 'application/javascript'),
                            ('/static/media.css', 'text/css'),
+                           ('/static/paper.css', 'text/css'),
+                           ('/static/paper.js', 'application/javascript'),
                            ('/static/pdfjs/pdf.mjs', 'application/javascript'),
                            ('/static/pdfjs/pdf.worker.mjs', 'application/javascript')]:
             conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)

@@ -28,15 +28,16 @@ document.querySelectorAll('.listening-player').forEach(box => {
     catch (_) { audio.controls = true; say('无法播放。可重试、使用浏览器播放器，或下载原文件。', true); }
   };
   audio.addEventListener('play', () => {
+    box.classList.add('is-playing');
     document.querySelectorAll('audio').forEach(other => { if (other !== audio) other.pause(); });
     play.textContent = '暂停'; play.setAttribute('aria-label', '暂停'); say('正在播放');
   });
-  audio.addEventListener('pause', () => { play.textContent = '播放'; play.setAttribute('aria-label', '播放'); if (!audio.ended) say('已暂停'); });
-  audio.addEventListener('ended', () => { play.textContent = '重播'; play.setAttribute('aria-label', '重播'); say('播放完毕'); });
+  audio.addEventListener('pause', () => { box.classList.remove('is-playing'); play.textContent = '播放'; play.setAttribute('aria-label', '播放'); if (!audio.ended) say('已暂停'); });
+  audio.addEventListener('ended', () => { box.classList.remove('is-playing'); play.textContent = '重播'; play.setAttribute('aria-label', '重播'); say('播放完毕'); });
   audio.addEventListener('loadedmetadata', ready);
   audio.addEventListener('durationchange', ready);
   audio.addEventListener('waiting', () => say('正在缓冲…'));
-  const loadError = () => { audio.controls = true; say('音频加载失败或格式不受支持，请打开或下载原文件。', true); };
+  const loadError = () => { box.classList.remove('is-playing'); audio.controls = true; say('音频加载失败或格式不受支持，请打开或下载原文件。', true); };
   audio.addEventListener('error', loadError);
   audio.addEventListener('timeupdate', () => {
     if (pointB !== null && audio.currentTime >= pointB) audio.currentTime = pointA;
