@@ -695,6 +695,67 @@ def qs(child=0, **kw):
     return ("?" + "&".join(parts)) if parts else ""
 
 
+def due_presets():
+    """Use the same server calendar as homework progress and AI due defaults."""
+    current = date.fromisoformat(today())
+    return [("today", "今天", current.isoformat()),
+            ("tomorrow", "明天", (current + timedelta(days=1)).isoformat()),
+            ("sunday", "本周日", (current + timedelta(days=6-current.weekday())).isoformat()),
+            ("clear", "清空", "")]
+
+
+def due_field_shortcuts(target):
+    return "<div class='due-presets' data-due-shortcuts hidden aria-label='快捷填写截止日期'>" + "".join(
+        f"<button type='button' class='ghost small' data-due-target='{target}' data-due-value='{value}'>{label}</button>"
+        for _, label, value in due_presets()) + "</div>"
+
+
+def item_actions(it, child=0, detail=False):
+    session = VIEW_SESSION.get()
+    if not item_edit_allowed(it, session):
+        return ""
+    context = f"&child={child}" if child else ""
+    out = (f"<div class='item-actions'><a class='item-edit' href='/item/edit?id={it['id']}{context}' "
+           f"aria-label='修改：{esc(it['title'])}'>修改</a>")
+    if it['kind'] == 'homework':
+        back = f"/item?id={it['id']}{context}" if detail else '/' + qs(child)
+        buttons = "".join(f"<button class='ghost small' name='preset' value='{key}'>{label}</button>"
+                          for key, label, _ in due_presets())
+        out += ("<details class='quick-due'><summary>改截止日期</summary>"
+                "<form method='post' action='/item/due' class='quick-due-form'>"
+                f"<input type='hidden' name='id' value='{it['id']}'>"
+                f"<input type='hidden' name='return_to' value='{esc(back)}' data-notebook-return>"
+                f"<p class='form-note'>当前：{esc(it['due'] or '未设截止日期')} · 日期按服务器时区</p>"
+                f"<div class='due-presets'>{buttons}</div>"
+                f"<label class='form-field' for='quick-due-{it['id']}'>自选截止日期</label>"
+                f"<div class='due-custom'><input id='quick-due-{it['id']}' type='date' name='due' value='{esc(it['due'] or '')}'>"
+                "<button name='preset' value='custom' class='small'>保存日期</button></div>"
+                "<p class='form-note'>点快捷日期立即保存；只改日期，不改内容和完成状态。</p></form></details>")
+    if detail and session['role'] == 'student':
+        out += f"<a class='back' href='/item/delete?id={it['id']}'>删除</a>"
+    return out + "</div>"
+
+
+def notebook_return(value, fallback='/'):
+    value = value or ''
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return fallback
+    if parsed.scheme or parsed.netloc or not value.startswith('/') or value.startswith('//'):
+        return fallback
+    if parsed.path not in ('/', '/item') or any(ord(c) < 32 or c == '\\' for c in value):
+        return fallback
+    return quote(value, safe="/?=&%#:+,;@!$'()*[]~-")
+
+
+def valid_due_date(value):
+    try:
+        return not value or (bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)) and date.fromisoformat(value).isoformat() == value)
+    except ValueError:
+        return False
+
+
 def compact_row(it, child=0, show_subject=False):
     kind = KINDS.get(it["kind"], it["kind"])
     meta = (esc(it["subject"]) + " · " if show_subject else "") + kind
@@ -712,7 +773,7 @@ def compact_row(it, child=0, show_subject=False):
                     f"<input type='hidden' name='id' value='{it['id']}'>"
                     f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
     return (f"<div class='row'><div class='t'><a href='/item?id={it['id']}{('&child=' + str(child)) if child else ''}'>{esc(it['title'])}</a>"
-            f"<div class='meta'>{meta}</div></div>{done_btn}</div>")
+            f"<div class='meta'>{meta}</div>{item_actions(it, child)}</div>{done_btn}</div>")
 
 
 def item_card(it, children, detail=False, child=0):
@@ -784,10 +845,8 @@ def item_card(it, children, detail=False, child=0):
                 f"<button class='{cls}'>{label}</button></form>")
     if not detail:
         out += f"<p><a href='/item?id={it['id']}'>打开详情 →</a></p>"
-    session = VIEW_SESSION.get()
-    if detail and session and session["role"] == "student" and it.get("child_id") == session["child_id"]:
-        out += (f"<p><a class='back' href='/item/edit?id={it['id']}'>修改</a> "
-                f"<a class='back' href='/item/delete?id={it['id']}'>删除</a></p>")
+    if detail:
+        out += item_actions(it, child, detail=True)
     return out + "</div>"
 
 
@@ -1350,6 +1409,7 @@ def admin_item_edit_page(it, msg=""):
             f"<input id='edit-link' name='link_url' type='url' value='{esc(it['link_url'] or '')}' placeholder='https://…'>"
             "<label class='form-field' for='edit-due'>截止日期（可选）</label>"
             f"<input id='edit-due' name='due' type='date' value='{esc(it['due'] or '')}'>"
+            + due_field_shortcuts("edit-due") +
             "<label class='form-field' for='edit-visible'>到这个时间才显示（可选）</label>"
             f"<input id='edit-visible' name='visible_at' type='datetime-local' value='{esc(it['visible_at'] or '')}'>"
             "<label style='display:flex;gap:10px;align-items:center;min-height:48px'>"
@@ -1376,8 +1436,9 @@ def item_edit_allowed(it, session):
     return not (it.get("visible_at") and it["visible_at"] > now_dt())
 
 
-def student_item_edit_page(it, msg=""):
-    """学生改自己作业的编辑页：字段与管理端修改一致，但归属固定为自己，不选孩子。"""
+def student_item_edit_page(it, msg="", return_to=""):
+    """本子内编辑：学生仅限自己可见项目，家长也可直接改；保持归属不变。"""
+    back = notebook_return(return_to, f"/item?id={it['id']}")
     subjects = get_subjects()
     subj_options = "".join(
         f"<option value='{esc(s)}' {'selected' if s == it['subject'] else ''}>{esc(s)}</option>"
@@ -1392,6 +1453,7 @@ def student_item_edit_page(it, msg=""):
             + (f"<p role='status'>{esc(msg)}</p>" if msg else '')
             + f"<form method='post' action='/item/edit'>"
             f"<input type='hidden' name='id' value='{it['id']}'>"
+            f"<input type='hidden' name='return_to' value='{esc(back)}'>"
             "<label class='form-field' for='edit-title'>标题</label>"
             f"<input id='edit-title' name='title' value='{esc(it['title'])}' required>"
             "<label class='form-field' for='edit-subject'>学科</label>"
@@ -1404,13 +1466,14 @@ def student_item_edit_page(it, msg=""):
             f"<input id='edit-link' name='link_url' type='url' value='{esc(it['link_url'] or '')}' placeholder='https://…'>"
             "<label class='form-field' for='edit-due'>截止日期（可选）</label>"
             f"<input id='edit-due' name='due' type='date' value='{esc(it['due'] or '')}'>"
+            + due_field_shortcuts("edit-due") +
             "<label class='form-field' for='edit-visible'>到这个时间才显示（可选）</label>"
             f"<input id='edit-visible' name='visible_at' type='datetime-local' value='{esc(it['visible_at'] or '')}'>"
             "<label style='display:flex;gap:10px;align-items:center;min-height:48px'>"
             f"<input type='checkbox' name='pinned' {'checked' if it['pinned'] else ''}> 置顶提醒</label>"
             + attachment
             + "<button class='full'>保存修改</button></form></div>"
-            f"<p><a class='back' href='/item?id={it['id']}'>← 不改了，回去</a></p>")
+            f"<p><a class='back' href='{esc(back)}'>← 不改了，回去</a></p>")
     return page("修改作业 - 作业板", body)
 
 
@@ -1856,7 +1919,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ('/api/ai-parse', '/api/ai-batch', '/api/ai-voice') and not self.session:
             self.send_json({'ok': False, 'error': 'unauthorized'}, 401)
             return False
-        protected = path in ('/', '/register', '/item', '/item/edit', '/item/delete', '/done', '/add', '/admin/add', '/logout') or path.startswith('/uploads/')
+        protected = path in ('/', '/register', '/item', '/item/edit', '/item/delete', '/item/due', '/done', '/add', '/admin/add', '/logout') or path.startswith('/uploads/')
         if protected and not self.session:
             self.redirect('/login')
             return False
@@ -2008,7 +2071,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(error_page("没找到这条内容", "它可能不存在，或者不属于你的本子。"), 404)
                 return
             if u.path == "/item/edit":
-                self.send_html(student_item_edit_page(it))
+                context_child = params.get('child', [''])[0]
+                return_to = f"/item?id={it['id']}&child={context_child}" if context_child.isdigit() else ''
+                self.send_html(student_item_edit_page(it, return_to=return_to))
             else:
                 self.send_html(student_item_delete_page(it))
             return
@@ -2239,6 +2304,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json({"ok": True, "drafts": result})
             return
+        if u.path == "/item/due":
+            try:
+                it = get_item(int(fields.get('id', '0')))
+            except ValueError:
+                it = None
+            if not item_edit_allowed(it, self.session) or it['kind'] != 'homework':
+                self.send_html(error_page('没找到这条作业', '它可能不存在，或者不属于你的本子。'), 404)
+                return
+            presets = {key: value for key, _, value in due_presets()}
+            preset = fields.get('preset', 'custom')
+            due = (fields.get('due') or '').strip() if preset == 'custom' else presets.get(preset)
+            if due is None or not valid_due_date(due):
+                self.send_html(error_page('截止日期无效，未保存', '请返回后选择有效日期。'), 400)
+                return
+            with db() as conn:
+                conn.execute('UPDATE items SET due=? WHERE id=?', (due, it['id']))
+            self.redirect(notebook_return(fields.get('return_to', ''), f"/item?id={it['id']}"))
+            return
         if u.path == "/done":
             try:
                 item_id = int(fields.get("id", "0"))
@@ -2289,7 +2372,7 @@ class Handler(BaseHTTPRequestHandler):
                 error = "学科不存在，未保存。"
             elif kind not in KINDS:
                 error = "类型不存在，未保存。"
-            elif due and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
+            elif not valid_due_date(due):
                 error = "截止日期格式不对，未保存。"
             elif visible_at and not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?", visible_at):
                 error = "显示时间格式不对，未保存。"
@@ -2300,7 +2383,7 @@ class Handler(BaseHTTPRequestHandler):
                              link_url=fields.get("link_url") or "", due=due,
                              visible_at=visible_at,
                              pinned=1 if fields.get("pinned") else 0)
-                self.send_html(student_item_edit_page(draft, error))
+                self.send_html(student_item_edit_page(draft, error, fields.get("return_to", "")))
                 return
             conn = db()
             conn.execute("UPDATE items SET title=?, subject=?, kind=?, body=?, link_url=?,"
@@ -2310,7 +2393,7 @@ class Handler(BaseHTTPRequestHandler):
                           1 if fields.get("pinned") else 0, item_id))
             conn.commit()
             conn.close()
-            self.redirect(f"/item?id={item_id}")
+            self.redirect(notebook_return(fields.get("return_to", ""), f"/item?id={item_id}"))
             return
         if u.path == '/login':
             with session_db() as conn:
@@ -2408,7 +2491,7 @@ class Handler(BaseHTTPRequestHandler):
                 error = "类型不存在，未保存。"
             elif child_id not in valid_children:
                 error = "归属孩子不存在，未保存。"
-            elif due and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due):
+            elif not valid_due_date(due):
                 error = "截止日期格式不对，未保存。"
             elif visible_at and not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?", visible_at):
                 error = "显示时间格式不对，未保存。"

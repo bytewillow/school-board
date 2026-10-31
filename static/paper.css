@@ -163,3 +163,20 @@ button:disabled { cursor: not-allowed; }
 .progress-period .progress-description { margin-top: 4px; }
 .progress-widget .progress-scope { line-height: 1.6; }
 .progress-widget .widget-note { margin-bottom: 0; }
+
+/* Notebook editing stays visible on touch devices; no hover-only menus. */
+.item-actions {display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:14px}
+.item-actions .item-edit,.quick-due>summary {min-height:44px;display:flex;align-items:center;padding:4px 0;box-sizing:border-box;cursor:pointer;color:var(--paper-accent,#3556db)}
+.quick-due {min-width:0;max-width:100%}
+.quick-due>summary {display:list-item;line-height:36px;list-style-position:inside}
+.quick-due[open] {flex-basis:100%}
+.quick-due-form {padding:12px;border:1px solid #deded9;border-radius:12px;margin:0 0 8px;max-width:480px;box-sizing:border-box;background:#fafaf8}
+.due-presets {display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.due-presets button {min-height:44px;min-width:56px;margin:0}
+.due-custom {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.due-custom input {flex:1;min-width:130px;width:auto;max-width:100%;box-sizing:border-box;margin:0}
+.due-custom button {min-height:44px;margin:0}
+.item-edit:focus-visible,.quick-due>summary:focus-visible {outline:2px solid #3556db;outline-offset:3px;border-radius:4px}
+.row {align-items:flex-start}
+
+.due-presets[hidden] {display:none}
