@@ -643,7 +643,9 @@ def page(title, body):
     content = ("<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{esc(title)}</title><style>{CSS}</style>"
-            "<link rel='stylesheet' href='/static/media.css'><script src='/static/media.js' defer></script>"
+            "<link rel='stylesheet' href='/static/media.css'>"
+            "<link rel='stylesheet' href='/static/paper.css'><script src='/static/paper.js' defer></script>"
+            "<script src='/static/media.js' defer></script>"
             "<link rel='manifest' href='/manifest.json'>"
             "<link rel='icon' type='image/png' sizes='192x192' href='/icon-192.png'>"
             "<link rel='apple-touch-icon' href='/apple-touch-icon.png'>"
@@ -753,7 +755,13 @@ def item_card(it, children, detail=False, child=0):
             out += f"<p><a href='{url}' target='_blank' rel='noopener'>打开原文件 ↗</a></p>"
         elif mime.startswith("audio/"):
             out += (f"<section class='listening-player' data-title='{esc(it['title'])}' aria-label='听力播放器'>"
-                    f"<p class='audio-title'>{esc(it['filename'])}</p><audio controls src='{url}' preload='metadata'></audio>"
+                    "<div class='audio-heading'><div class='audio-art' aria-hidden='true'>"
+                    "<svg viewBox='0 0 120 120' focusable='false'><circle cx='60' cy='60' r='43'/><circle cx='60' cy='60' r='28'/>"
+                    "<path d='M30 60v3m10-15v27m10-38v48m10-55v60m10-48v36m10-25v15m10-8v3'/></svg></div>"
+                    "<div class='audio-heading-text'><p class='widget-label'><span class='widget-dot' aria-hidden='true'></span>听力练习</p>"
+                    f"<p class='audio-title'>{esc(it['title'])}</p><p class='audio-filename'>{esc(it['filename'])}</p>"
+                    "<div class='audio-equalizer' aria-hidden='true'><i></i><i></i><i></i><i></i><i></i></div></div></div>"
+                    f"<audio controls src='{url}' preload='metadata'></audio>"
                     "<div class='audio-enhanced' hidden><div class='audio-primary'>"
                     "<button class='audio-play' type='button' aria-label='播放'>播放</button>"
                     "<div class='audio-timeline'><div class='audio-times'><span class='audio-current'>00:00</span><span class='audio-duration'>--:--</span></div>"
@@ -787,16 +795,50 @@ def is_today(it):
     return it["pinned"] or it["due"] == today() or it["created"][:10] == today()
 
 
-def timer_card():
-    return """<div class='card'><h3>⏱ 专注一下</h3>
-<div class='timer' id='t'>25:00</div>
-<p style='text-align:center'><button onclick='start()'>开始</button>
-<button class='ghost' onclick='stop()'>暂停</button> <button class='ghost' onclick='reset()'>重置</button></p>
-<script>let s=1500,timer=null;function show(){document.getElementById('t').textContent=
-String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
-function start(){if(timer)return;timer=setInterval(()=>{if(s>0){s--;show()}else{stop();alert('时间到，休息一下！')}},1000)}
-function stop(){clearInterval(timer);timer=null}
-function reset(){stop();s=1500;show()}</script></div>"""
+def timer_card(child=0):
+    # SVG ornament is original; the clock, progress and controls are real DOM.
+    ticks = "".join(f"<line x1='100' y1='9' x2='100' y2='{18 if n % 5 == 0 else 14}' "
+                    f"transform='rotate({n * 6} 100 100)'/>" for n in range(60))
+    return (f"<section class='paper-widget focus-widget' data-focus-timer data-child='{child}' aria-label='专注计时器'>"
+            "<h3 class='widget-label'><span class='widget-dot' aria-hidden='true'></span>专注一下</h3>"
+            "<div class='focus-dial'><svg viewBox='0 0 200 200' aria-hidden='true' focusable='false'>"
+            f"<g class='focus-ticks'>{ticks}</g><circle class='focus-track' cx='100' cy='100' r='75'/>"
+            "<circle class='focus-arc' cx='100' cy='100' r='75' pathLength='100' transform='rotate(-90 100 100)'/></svg>"
+            "<div class='focus-center'><span class='timer focus-time'>25:00</span><span class='focus-caption'>留一段时间，做一件事</span></div></div>"
+            "<div class='focus-presets' role='group' aria-label='专注时长'>"
+            "<button type='button' data-minutes='15' aria-pressed='false'>15 分钟</button>"
+            "<button type='button' data-minutes='25' aria-pressed='true'>25 分钟</button>"
+            "<button type='button' data-minutes='45' aria-pressed='false'>45 分钟</button></div>"
+            "<div class='focus-actions'><button class='focus-toggle' type='button' disabled>开始专注</button>"
+            "<button class='focus-reset' type='button' aria-label='重置专注计时器' disabled>重置</button></div>"
+            "<p class='focus-status muted' role='status' aria-live='polite'>准备好了就开始</p>"
+            "<noscript><p class='muted'>计时器需要启用 JavaScript；作业进度仍可直接查看。</p></noscript></section>")
+
+
+def progress_widget(stats, per_subject, child):
+    total, done = len(stats['homework']), stats['done']
+    percent = round(done * 100 / total) if total else 0
+    bars = []
+    for subject, items in per_subject.items():
+        tasks = [i for i in items if i['kind'] == 'homework']
+        if not tasks:
+            continue
+        completed = sum(1 for i in tasks if i['done'])
+        value = round(completed * 100 / len(tasks))
+        bars.append(f"<a class='subject-progress' href='/{qs(child, subject=subject)}'>"
+                    f"<span class='subject-progress-name'>{esc(subject)}</span>"
+                    f"<span class='paper-track' aria-hidden='true'><i style='width:{value}%'></i></span>"
+                    f"<span class='subject-progress-value'><span class='sr-only'>已完成 </span>{completed} / {len(tasks)}</span></a>")
+    message = '还没有作业，先登记一项吧' if not total else ('这一页的作业都完成了' if done == total else '一点一点，把待办变成完成')
+    return ("<section class='paper-widget progress-widget' aria-labelledby='progress-title'>"
+            "<h3 class='widget-label' id='progress-title'><span class='widget-dot' aria-hidden='true'></span>作业进度</h3>"
+            f"<div class='progress-number'>{percent}<span>%</span></div>"
+            f"<p class='progress-description'>已完成 {done} / {total} 项作业</p>"
+            f"<div class='paper-track progress-total' role='progressbar' aria-label='作业完成率' aria-valuemin='0' aria-valuemax='100' "
+            f"aria-valuenow='{percent}' aria-valuetext='已完成 {done} / {total} 项作业'><i style='width:{percent}%'></i></div>"
+            f"<p class='widget-note'>{message}</p>"
+            f"<div class='subject-progress-list'>{''.join(bars)}</div>"
+            "<p class='progress-scope'>当前本子的全部可见作业 · 非今日统计</p></section>")
 
 
 def child_chips(children, child, view=""):
@@ -882,21 +924,21 @@ def notebook_covers(children, items):
         next_item = (f"接下来 · {esc(pending[0]['subject'])} · {esc(pending[0]['title'])}"
                      if pending else f"共 {len(mine)} 条内容，打开本子查看")
         color = colors[(c["id"] - 1) % len(colors)]
+        total = len(stats["homework"])
+        percent = round(stats["done"] * 100 / total) if total else 0
         cards.append(f"<article class='notebook' style='border-left-color:{color}'>"
                      f"<a class='notebook-main' href='/?child={c['id']}' aria-label='打开{esc(c['name'])}的作业登记簿'>"
                      "<div class='notebook-top'><span class='notebook-icon' aria-hidden='true'></span><span class='notebook-open'>打开本子 →</span></div>"
                      f"<h2>{esc(c['name'])}的作业登记簿</h2><div class='notebook-summary'>{summary}</div>"
                      f"<div class='notebook-meta'>{''.join(urgent)}</div>"
+                     f"<div class='notebook-progress'><span>已完成 {stats['done']} / {total} 项作业</span>"
+                     f"<span class='paper-track' aria-hidden='true'><i style='width:{percent}%'></i></span></div>"
                      f"<div class='notebook-next'>{next_item}</div>"
                      f"<div class='sub'>{len(mine)} 条内容 · 含 {shared} 条共享内容</div></a>"
                      f"<footer class='notebook-footer'><a href='/register?child={c['id']}'>＋ 给{esc(c['name'])}登记</a></footer></article>")
     return "<section class='notebooks' aria-label='选择孩子的登记簿'>" + "".join(cards) + "</section>"
 
 
-def timer_details():
-    # 标题只在 summary 里出现一次，展开后不再重复一个“专注一下”
-    inner = timer_card().replace("<div class='card'>", "<div>", 1).replace("<h3>⏱ 专注一下</h3>", "", 1)
-    return f"<details style='margin-top:12px'><summary style='cursor:pointer;min-height:48px;display:flex;align-items:center'>⏱ 专注一下（点开计时）</summary>{inner}</details>"
 
 
 def add_form(subjects, children, action="/add", preselect_subject="", preselect_child=0, show_extra=True):
@@ -1001,7 +1043,8 @@ def kid_page(params):
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
     if len(children) > 1 and not child and not subject:
         return page("选本子 - 作业板", notebook_covers(children, visible_items(all_items())))
-    pane = (f"<div class='task-overview'><h2>待完成 {len(stats['pending'])} 项</h2>"
+    pane = ("<div class='paper-dashboard'>" + progress_widget(stats, per_subject, child) + timer_card(child) + "</div>"
+            + f"<div class='task-overview'><h2>待完成 {len(stats['pending'])} 项</h2>"
             f"<p class='muted'>已完成 {stats['done']} / {len(stats['homework'])} 项作业</p></div>"
             f"<p class='muted'>已逾期 {stats['overdue']} · 今天截止 {stats['today']} · 未设日期 {stats['undated']}</p>")
     if hidden:
@@ -1031,8 +1074,7 @@ def kid_page(params):
                  "<span class='arrow' aria-hidden='true'>→</span></a>")
     pane += (f"<form method='get'><input name='q' aria-label='搜索全部标题和内容' placeholder='搜全部标题 / 内容' value='{esc(q)}'>"
              f"<input type='hidden' name='view' value='{esc(view)}'>"
-             f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>"
-             + timer_details())
+             f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
     body = context + binder_wrap(tabs, pane)
     return contextual_page("作业板", body, child)
 
@@ -1742,7 +1784,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_html(login_page())
             return
-        if u.path in ("/static/entry.css", "/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
+        if u.path in ("/static/paper.css", "/static/paper.js", "/static/entry.css", "/static/media.js", "/static/media.css", "/static/pdfjs/pdf.mjs", "/static/pdfjs/pdf.worker.mjs", "/manifest.json", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/icon.svg", "/sw.js"):
             ctype = {"json": "application/manifest+json", "js": "application/javascript",
                      "svg": "image/svg+xml", "png": "image/png", "mjs": "application/javascript", "css": "text/css"}.get(u.path.rsplit(".", 1)[-1], "image/png")
             try:
