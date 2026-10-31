@@ -75,14 +75,15 @@ class BoardTests(unittest.TestCase):
         self.assertIn("aria-valuenow='67'", body)
         self.assertIn("已完成 2 / 3 项作业", body)
         self.assertIn("data-focus-timer data-child='1'", body)
-        self.assertIn('非今日统计', body)
+        self.assertIn('今日进度', body)
+        self.assertIn('历史进度', body)
         self.assertNotIn("alert('时间到", body)
 
     def test_paper_empty_progress_is_not_completion(self):
         status, body = self.request('/?child=1')
         self.assertEqual(status, 200)
         self.assertIn("aria-valuenow='0'", body)
-        self.assertIn('还没有作业，先登记一项吧', body)
+        self.assertIn('今天没有待统计的作业', body)
 
     def test_static_media_allowlist(self):
         for path, mime in [('/static/entry.css', 'text/css'),
@@ -266,6 +267,14 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(result['failed'][0]['index'], 1)
         self.assertEqual(result['failed'][0]['message'], '请选择学科')
         self.assertEqual(len(app.all_items()), 2)
+
+    def test_batch_keeps_user_cleared_due_date(self):
+        draft = {'title': '清空默认日期后创建', 'subject': '数学', 'kind': 'homework', 'child_id': 1, 'due': ''}
+        with patch.object(app, 'today', return_value='2026-10-30'):
+            status, body = self.request('/api/ai-batch', 'POST', json.dumps({'drafts': [draft]}), {'Content-Type': 'application/json'})
+        self.assertEqual(status, 200)
+        self.assertEqual(len(json.loads(body)['created']), 1)
+        self.assertEqual(app.all_items()[0]['due'], '')
 
     def test_registration_default_and_json_script_escaping(self):
         with app.db() as conn:

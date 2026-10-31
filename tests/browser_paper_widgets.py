@@ -15,7 +15,7 @@ audio_id = next(i['id'] for i in items if i['title'].startswith('虚构示例 ·
 errors = []
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox', '--autoplay-policy=no-user-gesture-required'])
-    # This modifies the temporary preview DB only, so the screenshots show genuine 40% progress.
+    # This modifies the temporary preview DB only, to exercise separate today/history/future denominators.
     seed = browser.new_page()
     seed.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
     for item in [i for i in items if i['child_id'] == 1 and i['kind'] == 'homework'][:2]:
@@ -28,15 +28,19 @@ with sync_playwright() as p:
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.request.post(BASE + '/admin/login', form={'password': 'preview-only-not-for-deployment'})
         page.goto(BASE + '/?child=1')
-        expect(page.locator('[role=progressbar]')).to_have_attribute('aria-valuenow', '40')
-        expect(page.locator('.progress-description')).to_have_text('已完成 2 / 5 项作业')
+        expect(page.locator('[data-progress-period=today] [role=progressbar]')).to_have_attribute('aria-valuenow', '33')
+        expect(page.locator('[data-progress-period=today] .progress-description')).to_have_text('已完成 1 / 3 项作业')
+        expect(page.locator('[data-progress-period=history] .progress-description')).to_have_text('已完成 0 / 1 项作业')
+        expect(page.locator('[data-progress-period=future] .progress-description')).to_have_text('已完成 1 / 1 项作业')
+        page.locator('[data-progress-period=history] summary').click()
+        expect(page.locator('[data-progress-period=history] [role=progressbar]')).to_be_visible()
+        page.locator('[data-progress-period=history] summary').click()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (width, 'dashboard overflow')
         expect(page.locator('.focus-toggle')).to_be_enabled()
         page.locator('[data-minutes="15"]').click()
         expect(page.locator('.focus-time')).to_have_text('15:00')
         page.locator('.focus-toggle').click()
-        page.wait_for_timeout(1150)
-        assert page.locator('.focus-time').inner_text() != '15:00'
+        expect(page.locator('.focus-time')).not_to_have_text('15:00')
         page.locator('.focus-toggle').click()
         paused = page.locator('.focus-time').inner_text()
         page.wait_for_timeout(600)

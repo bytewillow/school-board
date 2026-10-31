@@ -156,3 +156,10 @@ button:disabled { cursor: not-allowed; }
   .audio-play { width: 52px; min-width: 52px; min-height: 52px; }
 }
 @media(prefers-reduced-motion:reduce) { .focus-arc { transition: none; } .audio-equalizer i { animation: none!important; } }
+
+/* Each due-date cohort has its own denominator; today never includes backlog. */
+.progress-period { border-top: 1px solid var(--paper-line); margin-top: 14px; }
+.progress-period summary { min-height: 44px; padding: 10px 0; cursor: pointer; font-size: 13px; color: #50545d; }
+.progress-period .progress-description { margin-top: 4px; }
+.progress-widget .progress-scope { line-height: 1.6; }
+.progress-widget .widget-note { margin-bottom: 0; }

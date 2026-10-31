@@ -45,11 +45,14 @@ with sync_playwright() as p:
     expect(page.locator('#ai-parse-btn')).to_be_disabled()
     page.locator('.entry-tools summary').click()
     page.locator('#ai-json').fill(json.dumps([
-        {'title': '浏览器成功草稿', 'subject': '数学', 'child_id': 1},
+        {'title': '浏览器成功草稿', 'subject': '数学', 'kind': 'homework', 'child_id': 1},
         {'title': '暂不创建', 'subject': '语文', 'child_id': 1},
         {'title': '缺学科草稿', 'child_id': 1}], ensure_ascii=False))
     page.locator('#ai-json-btn').click()
     expect(page.locator('.draft-card')).to_have_count(3)
+    default_due = json.loads(page.locator('#sb-lists').text_content())['default_due']
+    expect(page.locator('.draft-card input[type=date]').first).to_have_value(default_due)
+    page.locator('.draft-card input[type=date]').first.fill('')
     page.locator('.draft-card').nth(1).locator("input[type='checkbox']").uncheck()
     page.locator('#ai-create-btn').click()
     expect(page.locator('#ai-status')).to_contain_text('已创建 1 条，失败 1 条')

@@ -815,30 +815,56 @@ def timer_card(child=0):
             "<noscript><p class='muted'>计时器需要启用 JavaScript；作业进度仍可直接查看。</p></noscript></section>")
 
 
-def progress_widget(stats, per_subject, child):
-    total, done = len(stats['homework']), stats['done']
-    percent = round(done * 100 / total) if total else 0
-    bars = []
-    for subject, items in per_subject.items():
-        tasks = [i for i in items if i['kind'] == 'homework']
-        if not tasks:
+def homework_periods(items, day=None):
+    """Disjoint due-date cohorts; undated legacy tasks use their registration day."""
+    day = day or today()
+    periods = {"today": [], "history": [], "future": []}
+    for item in items:
+        if item["kind"] != "homework":
             continue
-        completed = sum(1 for i in tasks if i['done'])
-        value = round(completed * 100 / len(tasks))
-        bars.append(f"<a class='subject-progress' href='/{qs(child, subject=subject)}'>"
-                    f"<span class='subject-progress-name'>{esc(subject)}</span>"
-                    f"<span class='paper-track' aria-hidden='true'><i style='width:{value}%'></i></span>"
-                    f"<span class='subject-progress-value'><span class='sr-only'>已完成 </span>{completed} / {len(tasks)}</span></a>")
-    message = '还没有作业，先登记一项吧' if not total else ('这一页的作业都完成了' if done == total else '一点一点，把待办变成完成')
+        task_day = item["due"] or item["created"][:10]
+        key = "today" if task_day == day else ("history" if task_day < day else "future")
+        periods[key].append(item)
+    return periods
+
+
+def progress_widget(stats, per_subject, child):
+    periods = homework_periods(stats['homework'])
+
+    def cohort(key, label, scope, primary=False):
+        tasks = periods[key]
+        total = len(tasks)
+        done = sum(1 for i in tasks if i['done'])
+        percent = round(done * 100 / total) if total else 0
+        bars = []
+        for subject in per_subject:
+            subject_tasks = [i for i in tasks if i['subject'] == subject]
+            if not subject_tasks:
+                continue
+            completed = sum(1 for i in subject_tasks if i['done'])
+            value = round(completed * 100 / len(subject_tasks))
+            bars.append(f"<a class='subject-progress' href='/{qs(child, subject=subject)}'>"
+                        f"<span class='subject-progress-name'>{esc(subject)}</span>"
+                        f"<span class='paper-track' aria-hidden='true'><i style='width:{value}%'></i></span>"
+                        f"<span class='subject-progress-value'><span class='sr-only'>已完成 </span>{completed} / {len(subject_tasks)}</span></a>")
+        description = f"已完成 {done} / {total} 项作业"
+        content = (f"<p class='progress-description'>{description}</p>"
+                   f"<div class='paper-track progress-total' role='progressbar' aria-label='{label}完成率' aria-valuemin='0' aria-valuemax='100' "
+                   f"aria-valuenow='{percent}' aria-valuetext='{description}'><i style='width:{percent}%'></i></div>"
+                   f"<div class='subject-progress-list'>{''.join(bars)}</div>"
+                   f"<p class='progress-scope'>{scope}</p>")
+        if primary:
+            message = '今天没有待统计的作业' if not total else ('今日作业都完成了' if done == total else '一点一点，把今天的待办变成完成')
+            return (f"<div data-progress-period='{key}'><h3 class='widget-label' id='progress-title'><span class='widget-dot' aria-hidden='true'></span>{label}</h3>"
+                    f"<div class='progress-number'>{percent}<span>%</span></div>" + content + f"<p class='widget-note'>{message}</p></div>")
+        return (f"<details class='progress-period' data-progress-period='{key}'><summary>{label} · {done} / {total} 项已完成</summary>"
+                + content + "</details>")
+
     return ("<section class='paper-widget progress-widget' aria-labelledby='progress-title'>"
-            "<h3 class='widget-label' id='progress-title'><span class='widget-dot' aria-hidden='true'></span>作业进度</h3>"
-            f"<div class='progress-number'>{percent}<span>%</span></div>"
-            f"<p class='progress-description'>已完成 {done} / {total} 项作业</p>"
-            f"<div class='paper-track progress-total' role='progressbar' aria-label='作业完成率' aria-valuemin='0' aria-valuemax='100' "
-            f"aria-valuenow='{percent}' aria-valuetext='已完成 {done} / {total} 项作业'><i style='width:{percent}%'></i></div>"
-            f"<p class='widget-note'>{message}</p>"
-            f"<div class='subject-progress-list'>{''.join(bars)}</div>"
-            "<p class='progress-scope'>当前本子的全部可见作业 · 非今日统计</p></section>")
+            + cohort('today', '今日进度', '截止日期为今天；未设截止日期时按登记日统计。', True)
+            + cohort('history', '历史进度', '截止日期早于今天；未设截止日期时按登记日统计。不含今日与未来作业。')
+            + cohort('future', '未来作业', '截止日期晚于今天；未设截止日期时按登记日统计。不计入今日进度。')
+            + "</section>")
 
 
 def child_chips(children, child, view=""):
@@ -924,15 +950,19 @@ def notebook_covers(children, items):
         next_item = (f"接下来 · {esc(pending[0]['subject'])} · {esc(pending[0]['title'])}"
                      if pending else f"共 {len(mine)} 条内容，打开本子查看")
         color = colors[(c["id"] - 1) % len(colors)]
-        total = len(stats["homework"])
-        percent = round(stats["done"] * 100 / total) if total else 0
+        periods = homework_periods(mine)
+        total = len(periods["today"])
+        today_done = sum(1 for i in periods["today"] if i["done"])
+        history_pending = sum(1 for i in periods["history"] if not i["done"])
+        percent = round(today_done * 100 / total) if total else 0
         cards.append(f"<article class='notebook' style='border-left-color:{color}'>"
                      f"<a class='notebook-main' href='/?child={c['id']}' aria-label='打开{esc(c['name'])}的作业登记簿'>"
                      "<div class='notebook-top'><span class='notebook-icon' aria-hidden='true'></span><span class='notebook-open'>打开本子 →</span></div>"
                      f"<h2>{esc(c['name'])}的作业登记簿</h2><div class='notebook-summary'>{summary}</div>"
                      f"<div class='notebook-meta'>{''.join(urgent)}</div>"
-                     f"<div class='notebook-progress'><span>已完成 {stats['done']} / {total} 项作业</span>"
+                     f"<div class='notebook-progress'><span>今日已完成 {today_done} / {total} 项作业</span>"
                      f"<span class='paper-track' aria-hidden='true'><i style='width:{percent}%'></i></span></div>"
+                     f"<p class='form-note'>历史待完成 {history_pending} 项 · 未来作业 {len(periods['future'])} 项</p>"
                      f"<div class='notebook-next'>{next_item}</div>"
                      f"<div class='sub'>{len(mine)} 条内容 · 含 {shared} 条共享内容</div></a>"
                      f"<footer class='notebook-footer'><a href='/register?child={c['id']}'>＋ 给{esc(c['name'])}登记</a></footer></article>")
@@ -1044,7 +1074,7 @@ def kid_page(params):
     if len(children) > 1 and not child and not subject:
         return page("选本子 - 作业板", notebook_covers(children, visible_items(all_items())))
     pane = ("<div class='paper-dashboard'>" + progress_widget(stats, per_subject, child) + timer_card(child) + "</div>"
-            + f"<div class='task-overview'><h2>待完成 {len(stats['pending'])} 项</h2>"
+            + f"<div class='task-overview'><h2>累计待完成 {len(stats['pending'])} 项</h2>"
             f"<p class='muted'>已完成 {stats['done']} / {len(stats['homework'])} 项作业</p></div>"
             f"<p class='muted'>已逾期 {stats['overdue']} · 今天截止 {stats['today']} · 未设日期 {stats['undated']}</p>")
     if hidden:
@@ -1499,7 +1529,64 @@ def validate_draft(raw, subjects, children, default_child=0):
             "due": due, "body": (raw.get("body") or "").strip()}
 
 
+def ai_default_due(day=None):
+    day = date.fromisoformat(day or today())
+    return (day + timedelta(days=2) if day.weekday() == 4 else day).isoformat()
+
+
+def numbered_entries(text):
+    """Recognize sequential task lists, not page numbers, decimals or dates.
+
+    Accept 1. / 1、 / 1) / (1) / （1） and whitespace-delimited 1 task 2 task.
+    At least two nonempty entries starting at 1 are required; numeric-only lists
+    (e.g. 第 1 2 3 题) and discontinuous numbers stay untouched for the model.
+    """
+    pattern = r"(?<![0-9A-Za-z_.])(?:[（(](\d{1,2})[）)]|([0-9]{1,2})[、．.)）](?!\d)|([0-9]{1,2})(?=\s+[^\d\s]))"
+    matches = list(re.finditer(pattern, text))
+    if len(matches) < 2:
+        return None
+    numbers = [int(next(g for g in m.groups() if g is not None)) for m in matches]
+    if numbers != list(range(1, len(numbers) + 1)):
+        return None
+    entries = [text[m.end():matches[i + 1].start() if i + 1 < len(matches) else len(text)].strip(' \t\r\n;；')
+               for i, m in enumerate(matches)]
+    if any(not entry or not re.search(r'[^\d\s、，,。.;；:：()（）-]', entry) for entry in entries):
+        return None
+    return text[:matches[0].start()].strip(), entries
+
+
 def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
+    numbered = numbered_entries(text)
+    normalized = text
+    if numbered:
+        prefix, entries = numbered
+        normalized = prefix + "\n" + "\n".join(f"{i}. {entry}" for i, entry in enumerate(entries, 1))
+    ok, err, drafts = _call_llm_parse_once(normalized, image_bytes, image_ctype, default_child)
+    if not ok or not numbered or image_bytes or len(drafts) >= len(numbered[1]):
+        return ok, err, drafts
+    # If the model still merged numbered tasks, parse each source task separately.
+    # Keep shared subject/date context, but never clone a merged task's due date.
+    # The fallback creates editable drafts only; no database write occurs here.
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+    prefix, entries = numbered
+    def parse_entry(entry):
+        content = (f"共同背景（适用于本条）：{prefix}\n" if prefix else "") + "本条独立任务：" + entry
+        return _call_llm_parse_once(content, None, image_ctype, default_child)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(copy_context().run, parse_entry, entry) for entry in entries]
+        results = [future.result() for future in futures]
+    combined = []
+    for success, error, result in results:
+        if not success:
+            return False, error, result
+        if not result:
+            return False, "llm_empty_draft", "有编号任务未生成草稿，请重试；尚未创建任何作业。"
+        combined.extend(result)
+    return True, "", combined
+
+
+def _call_llm_parse_once(text, image_bytes, image_ctype, default_child=None):
     """调 OpenAI 兼容的聊天接口做解析；没配 key 就明确返回未配置，不假装解析成功。"""
     import base64
     import urllib.error
@@ -1510,8 +1597,12 @@ def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
     system = ("你是作业登记解析器，只输出 JSON 数组，不要输出任何其他文字或 Markdown。"
               "每项字段：title（标题）、subject（学科，必须是下面列表里的原样字符串，对不上就留空）、"
               "kind（notice/homework/material/answer/listening/announcement，对不上就留空）、"
-              "child_id（页面选定的孩子 id）、due（YYYY-MM-DD，没有明确日期就留空）、body（正文）。"
+              "child_id（页面选定的孩子 id）、due（YYYY-MM-DD，没有明确日期就留空，由服务端为作业填入默认截止日）、body（正文）。"
               f"今天是 {today()}，相对日期（明天、下周五等）要换算成绝对日期。"
+              f"未说明日期时 due 留空，不猜测日期；服务端会为作业填 {ai_default_due()}（通常当天，周五登记则周日）。明确日期优先，不得把明确周五改成周日。"
+              "同一行的多个独立任务也必须拆开，不能只按换行或学科拆分。"
+              "例如‘语文：1.抄写生字 2.背诵课文 3.阅读课外书’必须输出三项；1、2、3、(1)(2)、1 任务 2 任务等同理。"
+              "每个编号任务独立保留所属学科、正文与截止日期；页码、题号范围（第1、2、3题）、小数和日期不要误拆。"
               f"学科列表：{json.dumps(get_subjects(), ensure_ascii=False)}。"
               f"孩子列表：{json.dumps(view_children(), ensure_ascii=False)}。")
     if default_child is not None:
@@ -1553,6 +1644,9 @@ def call_llm_parse(text, image_bytes, image_ctype, default_child=None):
         return False, "llm_bad_json", "模型返回的不是数组，重试一次或改用粘贴 JSON。"
     subjects, children = get_subjects(), view_children()
     drafts = [validate_draft(r, subjects, children, default_child or 0) for r in raw_list]
+    for draft in drafts:
+        if draft["kind"] == "homework" and not draft["due"]:
+            draft["due"] = ai_default_due()
     if default_child is not None:
         for draft in drafts:
             draft["child_id"] = default_child
@@ -1601,7 +1695,7 @@ def call_speech_transcribe(audio_bytes, audio_ctype):
 
 def ai_entry_html(subjects, children):
     """登记页 AI 录入卡：文字 / 拍照先解析成草稿，逐条核对后批量创建；粘贴 JSON 是不花 API 钱的免费路径。"""
-    lists_json = json.dumps({"subjects": subjects, "children": children, "locked_child": (VIEW_SESSION.get() or {}).get("role") == "student"}, ensure_ascii=False).replace("<", "\\u003c")
+    lists_json = json.dumps({"subjects": subjects, "children": children, "locked_child": (VIEW_SESSION.get() or {}).get("role") == "student", "default_due": ai_default_due()}, ensure_ascii=False).replace("<", "\\u003c")
     js = r"""
 var lists = JSON.parse(document.getElementById('sb-lists').textContent);
 var kinds = [['notice','通知'],['homework','作业'],['material','学习资料'],['answer','答案'],['listening','听力'],['announcement','提醒']];
@@ -1659,7 +1753,7 @@ document.getElementById('ai-json-btn').onclick = function() {
       var subj = subjects.indexOf(d.subject) >= 0 ? d.subject : '';
       var cid = parseInt(document.getElementById('entry-child').value, 10);
       if (lists.locked_child && Object.prototype.hasOwnProperty.call(d, 'child_id')) cid = d.child_id;
-      return {title: d.title || '', subject: subj, kind: d.kind || '', child_id: cid, due: /^\d{4}-\d{2}-\d{2}$/.test(d.due || '') ? d.due : '', body: d.body || ''};
+      return {title: d.title || '', subject: subj, kind: d.kind || '', child_id: cid, due: /^\d{4}-\d{2}-\d{2}$/.test(d.due || '') ? d.due : (d.kind === 'homework' ? lists.default_due : ''), body: d.body || ''};
     });
     renderDrafts(drafts);
   } catch (e) { st.textContent = 'JSON 解析失败：' + e; }
@@ -1695,12 +1789,12 @@ document.getElementById('ai-create-btn').onclick = async function() {
     html = ("<div class='ai-input-card'><p class='entry-step'>1 / 录入内容</p><h2>先识别，再核对</h2>"
             "<p class='muted'>识别后生成草稿，确认之前不会创建作业。想用语音时，用输入法的语音输入转成文字再粘贴进来，识别更准。</p>"
             "<div class='ai-input-grid'>"
-            "<div><label class='form-field' for='ai-text'>写一句、拍张照</label><textarea id='ai-text' placeholder='例如：明天数学练习册第10页，语文听写，周五英语听力'></textarea>"
+            "<div><label class='form-field' for='ai-text'>写一句、拍张照</label><textarea id='ai-text' placeholder='例如：语文：1.抄写生字 2.背诵课文 3.阅读15分钟（不用换行）'></textarea>"
             "<label class='form-field' for='ai-image'>照片（可选，最大 10MB）</label><input id='ai-image' type='file' accept='image/*' aria-label='拍照或选图'>"
             f"<p class='form-note'>{model_note}</p>"
             f"<button id='ai-parse-btn' type='button' {'disabled' if not configured else ''}>识别文字 / 照片</button></div></div></div>"
             "<div class='ai-review'><p class='entry-step'>2 / 核对后创建</p><h2>核对作业草稿</h2>"
-            "<p class='muted'>检查孩子、学科和截止日期；不需要的草稿可取消勾选。</p>"
+            "<p class='muted'>检查孩子、学科和截止日期；未指定日期的作业默认当天，周五登记默认周日。明确日期优先，可修改或清空。</p>"
             "<p id='ai-status' class='muted' role='status' aria-live='polite'></p>"
             "<div id='ai-drafts'></div>"
             "<button id='ai-create-btn' type='button'>确认并创建已勾选作业</button></div>"
