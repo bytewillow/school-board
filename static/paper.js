@@ -76,3 +76,18 @@
     window.addEventListener('pageshow', tick);
   });
 })();
+
+// Deadline controls enhance ordinary forms; list date updates also work without JS.
+document.querySelectorAll('[data-due-shortcuts]').forEach(group => { group.hidden = false; });
+document.querySelectorAll('[data-due-target]').forEach(button => {
+  button.addEventListener('click', () => {
+    const input = document.getElementById(button.dataset.dueTarget);
+    if (input) {
+      input.value = button.dataset.dueValue;
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+    }
+  });
+});
+document.querySelectorAll('[data-notebook-return]').forEach(input => {
+  input.value = window.location.pathname + window.location.search;
+});

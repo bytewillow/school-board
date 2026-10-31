@@ -769,5 +769,87 @@ class LoginTests(unittest.TestCase):
         status, _, _ = self.raw(f'/item/edit?id={shared}', cookie=self.cookie)
         self.assertEqual(status, 200)
 
+    def test_notebook_edit_entry_for_parent_and_student(self):
+        own = self.item('自己的任务')
+        other = self.item('其他孩子任务', child=2)
+        shared = self.item('历史共享', child=0)
+        parent_html = self.raw('/?child=1', cookie=self.cookie)[2]
+        self.assertIn(f"/item/edit?id={own}&child=1", parent_html)
+        self.assertIn('改截止日期', parent_html)
+        detail = self.raw(f'/item?id={own}&child=1', cookie=self.cookie)[2]
+        self.assertIn(f"/item/edit?id={own}&child=1", detail)
+        self.assertNotIn('/item/delete?', detail)  # No new destructive parent shortcut.
+        student = self.student()
+        html = self.raw('/', cookie=student)[2]
+        self.assertIn(f"/item/edit?id={own}", html)
+        self.assertNotIn(f"/item/edit?id={other}", html)
+        self.assertNotIn(f"/item/edit?id={shared}", html)
+        for cookie in (self.cookie, student):
+            status, _, body = self.raw(f'/item/edit?id={own}&child=1', cookie=cookie)
+            self.assertEqual(status, 200)
+            self.assertIn("data-due-target='edit-due'", body)
+            self.assertIn("value='/item?id=" + str(own) + "&amp;child=1'", body)
+
+    def test_quick_due_updates_only_date(self):
+        own = self.item('仅日期修改', done=True)
+        original = app.get_item(own)
+        student = self.student()
+        with patch.object(app, 'today', return_value='2026-10-30'):
+            for preset, expected in [('today', '2026-10-30'), ('tomorrow', '2026-10-31'),
+                                     ('sunday', '2026-11-01'), ('clear', '')]:
+                status, headers, _ = self.raw('/item/due', 'POST',
+                    {'id': own, 'preset': preset, 'return_to': '/?child=1&subject=数学',
+                     'title': '不能覆盖', 'child_id': '2', 'done': '0'}, student)
+                self.assertEqual(status, 303)
+                self.assertEqual(headers['Location'], '/?child=1&subject=%E6%95%B0%E5%AD%A6')
+                saved = app.get_item(own)
+                self.assertEqual(saved['due'], expected)
+                self.assertEqual({k:v for k,v in saved.items() if k != 'due'},
+                                 {k:v for k,v in original.items() if k != 'due'})
+        for value in ['2026-11-25', '']:
+            self.assertEqual(self.raw('/item/due', 'POST', {'id': own, 'due': value}, student)[0], 303)
+            self.assertEqual(app.get_item(own)['due'], value)
+
+    def test_quick_due_permission_and_invalid_inputs(self):
+        own = self.item()
+        other = self.item(child=2)
+        shared = self.item(child=0)
+        hidden = self.item(visible_at='2999-01-01T00:00')
+        notice = self.item(kind='notice')
+        student = self.student()
+        self.assertEqual(self.raw('/item/due', 'POST', {'id': own})[1]['Location'], '/login')
+        for item_id in (other, shared, hidden, notice, 99999, 'oops'):
+            self.assertEqual(self.raw('/item/due', 'POST', {'id': item_id, 'preset': 'today'}, student)[0], 404)
+        for due in ('2026-02-30', '2026-13-01', '2026-1-1', 'tomorrow', '2026-11-01<script>'):
+            self.assertEqual(self.raw('/item/due', 'POST', {'id': own, 'due': due}, student)[0], 400)
+            self.assertEqual(app.get_item(own)['due'], '')
+        self.assertEqual(self.raw('/item/due', 'POST', {'id': own, 'preset': 'unknown'}, student)[0], 400)
+        self.assertEqual(self.raw('/item/due', 'POST', {'id': own, 'preset': 'today'}, student,
+                                  headers={'Origin': 'https://foreign.invalid'})[0], 403)
+        for item_id in (own, other, shared, hidden):
+            self.assertEqual(self.raw('/item/due', 'POST', {'id': item_id, 'preset': 'today'}, self.cookie)[0], 303)
+
+    def test_quick_due_safe_return_and_sunday(self):
+        own = self.item()
+        for back in ('https://evil.invalid/', '//evil.invalid/', '/admin', '/\\evil.invalid/', '/?x=1\r\nX-Hack:yes'):
+            status, headers, _ = self.raw('/item/due', 'POST',
+                {'id': own, 'due': '2026-11-02', 'return_to': back}, self.cookie)
+            self.assertEqual((status, headers['Location']), (303, f'/item?id={own}'))
+        with patch.object(app, 'today', return_value='2026-11-01'):
+            self.assertEqual(dict((k,v) for k,_,v in app.due_presets())['sunday'], '2026-11-01')
+
+    def test_notebook_full_edit_preserves_child_context(self):
+        own = self.item()
+        fields = {'id': own, 'title': '改后内容', 'subject': '数学', 'kind': 'homework',
+                  'due': '2026-11-02', 'return_to': f'/item?id={own}&child=1', 'child_id': 2}
+        for cookie in (self.cookie, self.student()):
+            status, headers, _ = self.raw('/item/edit', 'POST', fields, cookie)
+            self.assertEqual((status, headers['Location']), (303, f'/item?id={own}&child=1'))
+            self.assertEqual(app.get_item(own)['child_id'], 1)
+            status, _, body = self.raw('/item/edit', 'POST', dict(fields, due='2026-02-30'), cookie)
+            self.assertEqual(status, 200)
+            self.assertIn('截止日期格式不对', body)
+            self.assertEqual(app.get_item(own)['due'], '2026-11-02')
+
 if __name__ == '__main__':
     unittest.main()
