@@ -775,7 +775,9 @@ class LoginTests(unittest.TestCase):
         shared = self.item('历史共享', child=0)
         parent_html = self.raw('/?child=1', cookie=self.cookie)[2]
         self.assertIn(f"/item/edit?id={own}&child=1", parent_html)
-        self.assertIn('改截止日期', parent_html)
+        self.assertIn('调整截止日期：自己的任务', parent_html)
+        self.assertNotIn('>修改</a>', parent_html)
+        self.assertNotIn('>改截止日期</summary>', parent_html)
         detail = self.raw(f'/item?id={own}&child=1', cookie=self.cookie)[2]
         self.assertIn(f"/item/edit?id={own}&child=1", detail)
         self.assertNotIn('/item/delete?', detail)  # No new destructive parent shortcut.
