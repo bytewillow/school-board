@@ -710,30 +710,39 @@ def due_field_shortcuts(target):
         for _, label, value in due_presets()) + "</div>"
 
 
-def item_actions(it, child=0, detail=False):
-    session = VIEW_SESSION.get()
-    if not item_edit_allowed(it, session):
-        return ""
+def item_due_control(it, child=0, detail=False):
+    label = due_label(it) if not it['done'] else ('截止 ' + it['due'] if it['due'] else '未设截止日期')
+    if not item_edit_allowed(it, VIEW_SESSION.get()):
+        return "<span class='due-label'>" + esc(label) + "</span>"
     context = f"&child={child}" if child else ""
-    out = (f"<div class='item-actions'><a class='item-edit' href='/item/edit?id={it['id']}{context}' "
-           f"aria-label='修改：{esc(it['title'])}'>修改</a>")
-    if it['kind'] == 'homework':
-        back = f"/item?id={it['id']}{context}" if detail else '/' + qs(child)
-        buttons = "".join(f"<button class='ghost small' name='preset' value='{key}'>{label}</button>"
-                          for key, label, _ in due_presets())
-        out += ("<details class='quick-due'><summary>改截止日期</summary>"
-                "<form method='post' action='/item/due' class='quick-due-form'>"
-                f"<input type='hidden' name='id' value='{it['id']}'>"
-                f"<input type='hidden' name='return_to' value='{esc(back)}' data-notebook-return>"
-                f"<p class='form-note'>当前：{esc(it['due'] or '未设截止日期')} · 日期按服务器时区</p>"
-                f"<div class='due-presets'>{buttons}</div>"
-                f"<label class='form-field' for='quick-due-{it['id']}'>自选截止日期</label>"
-                f"<div class='due-custom'><input id='quick-due-{it['id']}' type='date' name='due' value='{esc(it['due'] or '')}'>"
-                "<button name='preset' value='custom' class='small'>保存日期</button></div>"
-                "<p class='form-note'>点快捷日期立即保存；只改日期，不改内容和完成状态。</p></form></details>")
-    if detail and session['role'] == 'student':
-        out += f"<a class='back' href='/item/delete?id={it['id']}'>删除</a>"
-    return out + "</div>"
+    back = f"/item?id={it['id']}{context}" if detail else '/' + qs(child)
+    buttons = ''.join(f"<button class='ghost small' name='preset' value='{key}'>{text}</button>"
+                      for key, text, _ in due_presets())
+    return (f"<details class='quick-due'><summary aria-label='调整截止日期：{esc(it['title'])}'>{esc(label)}</summary>"
+            "<form method='post' action='/item/due' class='quick-due-form'>"
+            f"<input type='hidden' name='id' value='{it['id']}'>"
+            f"<input type='hidden' name='return_to' value='{esc(back)}' data-notebook-return>"
+            f"<div class='due-presets'>{buttons}</div>"
+            f"<label class='sr-only' for='quick-due-{it['id']}'>自选截止日期（服务器时区）</label>"
+            f"<div class='due-custom'><input id='quick-due-{it['id']}' type='date' name='due' value='{esc(it['due'] or '')}' data-auto-due>"
+            "<button name='preset' value='custom' class='small due-save'>保存日期</button></div></form></details>")
+
+
+def item_title(it, child=0):
+    context = f"&child={child}" if child else ""
+    if item_edit_allowed(it, VIEW_SESSION.get()):
+        return (f"<a class='item-edit item-title' href='/item/edit?id={it['id']}{context}' "
+                f"data-item-detail='/item?id={it['id']}{context}' aria-label='修改：{esc(it['title'])}'>{esc(it['title'])}</a>")
+    return f"<a href='/item?id={it['id']}{context}'>{esc(it['title'])}</a>"
+
+
+def item_actions(it, child=0, detail=False):
+    # Item text and the date itself are the controls, not a second row of buttons.
+    if not detail or not item_edit_allowed(it, VIEW_SESSION.get()):
+        return ''
+    if VIEW_SESSION.get()['role'] == 'student':
+        return f"<p><a class='back' href='/item/delete?id={it['id']}'>删除</a></p>"
+    return ''
 
 
 def notebook_return(value, fallback='/'):
@@ -759,8 +768,8 @@ def valid_due_date(value):
 def compact_row(it, child=0, show_subject=False):
     kind = KINDS.get(it["kind"], it["kind"])
     meta = (esc(it["subject"]) + " · " if show_subject else "") + kind
-    if it["kind"] == "homework" and not it["done"]:
-        meta += " · <span class='due-label'>" + esc(due_label(it)) + "</span>"
+    if it["kind"] == "homework":
+        meta += " · " + item_due_control(it, child)
     elif it["due"]:
         meta += " · 截止 " + esc(it["due"])
     if not it.get("child_id"):
@@ -772,7 +781,7 @@ def compact_row(it, child=0, show_subject=False):
         done_btn = (f"<form method='post' action='/done' style='margin:0'>"
                     f"<input type='hidden' name='id' value='{it['id']}'>"
                     f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
-    return (f"<div class='row'><div class='t'><a href='/item?id={it['id']}{('&child=' + str(child)) if child else ''}'>{esc(it['title'])}</a>"
+    return (f"<div class='row'><div class='t'>{item_title(it, child)}"
             f"<div class='meta'>{meta}</div>{item_actions(it, child)}</div>{done_btn}</div>")
 
 
@@ -784,11 +793,11 @@ def item_card(it, children, detail=False, child=0):
         tags += f"<span class='tag'>{esc(cn)}</span>"
     if it["pinned"]:
         tags += "<span class='tag pin'>置顶</span>"
-    if it["due"]:
-        tags += f"<span class='tag'>截止 {esc(it['due'])}</span>"
+    if it["due"] or it["kind"] == "homework":
+        tags += item_due_control(it, child, detail=True) if it["kind"] == "homework" else f"<span class='tag'>截止 {esc(it['due'])}</span>"
     if it["kind"] == "homework" and it["done"]:
         tags += "<span class='tag'>✅ 已完成</span>"
-    out = f"<div class='card'>{tags}<h3 style='margin:8px 0'>{esc(it['title'])}</h3>"
+    out = f"<div class='card'>{tags}<h3 style='margin:8px 0'>{item_title(it, child)}</h3>"
     if it["body"]:
         out += f"<p>{esc(it['body']).replace(chr(10), '<br>')}</p>"
     link = safe_link(it["link_url"])
@@ -859,17 +868,18 @@ def timer_card(child=0):
     ticks = "".join(f"<line x1='100' y1='9' x2='100' y2='{18 if n % 5 == 0 else 14}' "
                     f"transform='rotate({n * 6} 100 100)'/>" for n in range(60))
     return (f"<section class='paper-widget focus-widget' data-focus-timer data-child='{child}' aria-label='专注计时器'>"
-            "<h3 class='widget-label'><span class='widget-dot' aria-hidden='true'></span>专注一下</h3>"
+            "<details class='focus-settings'><summary aria-label='专注计时器设置'><span class='focus-label'>专注一下</span>"
             "<div class='focus-dial'><svg viewBox='0 0 200 200' aria-hidden='true' focusable='false'>"
             f"<g class='focus-ticks'>{ticks}</g><circle class='focus-track' cx='100' cy='100' r='75'/>"
             "<circle class='focus-arc' cx='100' cy='100' r='75' pathLength='100' transform='rotate(-90 100 100)'/></svg>"
-            "<div class='focus-center'><span class='timer focus-time'>25:00</span><span class='focus-caption'>留一段时间，做一件事</span></div></div>"
+            "<div class='focus-center'><span class='timer focus-time'>25:00</span></div></div></summary>"
             "<div class='focus-presets' role='group' aria-label='专注时长'>"
             "<button type='button' data-minutes='15' aria-pressed='false'>15 分钟</button>"
             "<button type='button' data-minutes='25' aria-pressed='true'>25 分钟</button>"
             "<button type='button' data-minutes='45' aria-pressed='false'>45 分钟</button></div>"
+            "<button class='focus-reset' type='button' aria-label='重置专注计时器' disabled>重置</button></details>"
             "<div class='focus-actions'><button class='focus-toggle' type='button' disabled>开始专注</button>"
-            "<button class='focus-reset' type='button' aria-label='重置专注计时器' disabled>重置</button></div>"
+            "</div>"
             "<p class='focus-status muted' role='status' aria-live='polite'>准备好了就开始</p>"
             "<noscript><p class='muted'>计时器需要启用 JavaScript；作业进度仍可直接查看。</p></noscript></section>")
 
@@ -914,16 +924,20 @@ def progress_widget(stats, per_subject, child):
                    f"<p class='progress-scope'>{scope}</p>")
         if primary:
             message = '今天没有待统计的作业' if not total else ('今日作业都完成了' if done == total else '一点一点，把今天的待办变成完成')
-            return (f"<div data-progress-period='{key}'><h3 class='widget-label' id='progress-title'><span class='widget-dot' aria-hidden='true'></span>{label}</h3>"
-                    f"<div class='progress-number'>{percent}<span>%</span></div>" + content + f"<p class='widget-note'>{message}</p></div>")
+            return (f"<div data-progress-period='{key}'><h3 class='widget-label' id='progress-title'>{label}</h3>"
+                    f"<details class='today-breakdown'><summary class='today-summary'><div class='progress-ring' style='--progress:{percent}%'>"
+                    f"<div class='progress-number'>{percent}<span>%</span></div></div>"
+                    f"<div><p class='progress-description'>{description}</p><p class='widget-note'>{message}</p></div></summary>"
+                    f"{content.replace('progress-description', 'sr-only')}</details></div>")
         return (f"<details class='progress-period' data-progress-period='{key}'><summary>{label} · {done} / {total} 项已完成</summary>"
                 + content + "</details>")
 
     return ("<section class='paper-widget progress-widget' aria-labelledby='progress-title'>"
             + cohort('today', '今日进度', '截止日期为今天；未设截止日期时按登记日统计。', True)
+            + "<details class='progress-archive'><summary>历史与未来</summary>"
             + cohort('history', '历史进度', '截止日期早于今天；未设截止日期时按登记日统计。不含今日与未来作业。')
             + cohort('future', '未来作业', '截止日期晚于今天；未设截止日期时按登记日统计。不计入今日进度。')
-            + "</section>")
+            + "</details></section>")
 
 
 def child_chips(children, child, view=""):
@@ -1132,19 +1146,17 @@ def kid_page(params):
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
     if len(children) > 1 and not child and not subject:
         return page("选本子 - 作业板", notebook_covers(children, visible_items(all_items())))
-    pane = ("<div class='paper-dashboard'>" + progress_widget(stats, per_subject, child) + timer_card(child) + "</div>"
-            + f"<div class='task-overview'><h2>累计待完成 {len(stats['pending'])} 项</h2>"
-            f"<p class='muted'>已完成 {stats['done']} / {len(stats['homework'])} 项作业</p></div>"
-            f"<p class='muted'>已逾期 {stats['overdue']} · 今天截止 {stats['today']} · 未设日期 {stats['undated']}</p>")
+    pane = ("<div class='paper-dashboard'>" + progress_widget(stats, per_subject, child) + "</div>")
     if hidden:
         pane += f"<p class='muted'>另有 {hidden} 条内容未到显示时间</p>"
     pending = stats["pending"]
     pane += ("<div class='section-heading'><h3>接下来要做</h3>"
-             f"<a href='/{qs(child, pending='1')}'>全部待办 →</a></div>")
+             f"<a href='/{qs(child, pending='1')}' aria-label='待完成 {len(stats['pending'])} 项'>全部待办 {len(stats['pending'])} →</a></div>")
     if pending:
         pane += "".join(compact_row(i, child, show_subject=True) for i in pending[:3])
     else:
         pane += "<p class='muted'>没有待完成作业，通知和学习资料仍可在各科翻看。</p>"
+    pane += timer_card(child)
     if pins:
         pane += ("<h3 style='margin-top:12px'>📌 提醒</h3>" +
                  "".join(f"<p style='margin:6px 0'><a href='/item?id={i['id']}{('&child=' + str(child)) if child else ''}'>{esc(i['title'])}</a></p>"
