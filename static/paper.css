@@ -280,3 +280,12 @@ body:has(.item-edit-dialog[open]) {overflow:hidden}
 .progress-archive>summary::after {content:'›';margin-left:auto;font-size:18px}
 .progress-archive[open]>summary::after {transform:rotate(90deg)}
 .progress-archive .progress-period {margin-left:8px}
+
+/* A brief full-viewport celebration, with no input blocking, sound or flashing. */
+.completion-celebration {position:fixed;inset:0;z-index:1000;pointer-events:none;overflow:hidden}
+.completion-cheer {position:absolute;top:max(72px,12vh);left:50%;transform:translateX(-50%);padding:16px 24px;border-radius:18px;background:#fff9e9;color:#544122;box-shadow:0 8px 30px #30271325;font-size:clamp(18px,4vw,24px);font-weight:700;white-space:nowrap}
+.confetti {position:absolute;top:-24px;left:var(--x);width:10px;height:18px;border-radius:2px;animation:completion-fall 2.4s var(--delay) ease-in forwards}
+@keyframes completion-fall {to {transform:translate(var(--drift),110vh) rotate(var(--spin))}}
+.pwa-update {position:fixed;bottom:80px;left:12px;right:12px;max-width:480px;margin:auto;z-index:1001;display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--paper);border:1px solid var(--paper-line);border-radius:16px;box-shadow:0 6px 24px #2222;font-size:14px}
+.pwa-update button {flex-shrink:0;min-height:44px}
+@media(prefers-reduced-motion:reduce){.confetti{display:none;animation:none}}

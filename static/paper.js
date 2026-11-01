@@ -129,9 +129,9 @@ document.addEventListener('click', event => {
 });
 
 // Reuse the server's permission-checked edit form. No parallel write API or optimistic save.
-// Without dialog/fetch support the title remains an ordinary edit-page link.
+// Explicit Modify opens the editor; titles always navigate to details, including without JS.
 if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototype.showModal === 'function' && typeof window.fetch === 'function') {
-  document.querySelectorAll('.item-title[data-item-detail]').forEach(link => {
+  document.querySelectorAll('.item-edit[data-item-detail]').forEach(link => {
     link.addEventListener('click', async event => {
       if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
       event.preventDefault();
@@ -171,8 +171,7 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
           if (form.dataset.submitting) { event.preventDefault(); return; }
           form.dataset.submitting = '1'; save.textContent = '保存中…';
         });
-        const detail = document.createElement('a'); detail.href = link.dataset.itemDetail; detail.className = 'detail-link'; detail.textContent = '查看详情与附件';
-        dialog.append(form, detail); document.body.append(dialog);
+        dialog.append(form); document.body.append(dialog);
         close.addEventListener('click', () => dialog.close());
         dialog.addEventListener('close', () => { dialog.remove(); link.focus(); }, {once:true});
         dialog.showModal();
@@ -182,3 +181,79 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
     });
   });
 }
+
+// Check on open/resume. Never replace a page with unsaved work automatically.
+if ('serviceWorker' in navigator) {
+  let registration;
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.register('/sw.js', {updateViaCache: 'none'}).then(reg => {
+    registration = reg;
+    return reg.update();
+  }).catch(() => { /* Network unavailable: keep current page usable. */ });
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || document.querySelector('.pwa-update')) return;
+    const notice = document.createElement('div'); notice.className = 'pwa-update';
+    notice.setAttribute('role', 'status');
+    notice.append('新版已就绪，保存当前修改后可刷新。');
+    const refresh = document.createElement('button'); refresh.type = 'button'; refresh.textContent = '刷新';
+    refresh.addEventListener('click', () => location.reload()); notice.append(refresh);
+    document.body.append(notice);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && registration) registration.update().catch(() => {});
+  });
+  window.addEventListener('pageshow', event => {
+    if (event.persisted && registration) registration.update().catch(() => {});
+  });
+}
+
+// Only a confirmed server completion can create the one-shot celebration receipt.
+(() => {
+  const receiptKey = 'school-board-celebrate';
+  try {
+    const at = Number(sessionStorage.getItem(receiptKey));
+    sessionStorage.removeItem(receiptKey);
+    if (at && Date.now() - at >= 0 && Date.now() - at < 15000) {
+      const layer = document.createElement('div'); layer.className = 'completion-celebration';
+      const status = document.createElement('div'); status.className = 'completion-cheer';
+      status.setAttribute('role', 'status'); status.textContent = '又完成一项，真棒！'; layer.append(status);
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        for (let i = 0; i < 100; i++) {
+          const piece = document.createElement('i'); piece.className = 'confetti'; piece.setAttribute('aria-hidden', 'true');
+          piece.style.setProperty('--x', Math.random() * 100 + 'vw');
+          piece.style.setProperty('--drift', (Math.random() - .5) * 50 + 'vw');
+          piece.style.setProperty('--delay', Math.random() * .35 + 's');
+          piece.style.setProperty('--spin', (Math.random() - .5) * 1000 + 'deg');
+          piece.style.backgroundColor = ['#3158df', '#efb34f', '#64aa8b', '#dd7b98', '#a18bd1'][i % 5];
+          layer.append(piece);
+        }
+      }
+      document.body.append(layer); setTimeout(() => layer.remove(), 3000);
+    }
+  } catch (_) { /* Optional tab storage; completion still works. */ }
+  if (typeof fetch !== 'function') return;
+  document.querySelectorAll('form[action="/done"]').forEach(form => {
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (form.dataset.completionPending) return;
+      form.dataset.completionPending = '1';
+      const button = form.querySelector('button'); button.disabled = true;
+      try {
+        const response = await fetch('/done', {method: 'POST', credentials: 'same-origin',
+          headers: {'Accept': 'application/json'}, body: new URLSearchParams(new FormData(form))});
+        const result = await response.json();
+        if (!response.ok || result.ok !== true || typeof result.done !== 'boolean') throw new Error('unconfirmed');
+        if (result.done) {
+          try { sessionStorage.setItem(receiptKey, String(Date.now())); } catch (_) {}
+        }
+        location.assign(result.redirect);
+      } catch (_) {
+        // Do not retry a possibly accepted mutation or celebrate an unknown outcome.
+        const status = document.createElement('p'); status.setAttribute('role', 'status');
+        status.textContent = '完成状态未确认，请刷新查看后再操作。';
+        const refresh = document.createElement('a'); refresh.href = location.href; refresh.textContent = '刷新查看';
+        status.append(refresh); form.append(status);
+      }
+    });
+  });
+})();
