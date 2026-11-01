@@ -48,8 +48,8 @@ with tempfile.TemporaryDirectory(prefix='board-child-edit-ui-') as directory, Ex
                     page.request.post(base + '/login', form={'name': '小禾', 'password': 'fixture-student-only'})
                 notebook_url = base + '/?child=1&subject=' + app.quote('数学')
                 page.goto(notebook_url)
-                row = page.locator('.row').filter(has=page.get_by_role('link', name='修改：数学练习册第十页', exact=True))
-                edit = row.get_by_role('link', name='修改：数学练习册第十页', exact=True)
+                row = page.locator('.row').filter(has=page.get_by_role('link', name='数学练习册第十页', exact=True))
+                edit = row.get_by_role('link', name='数学练习册第十页', exact=True)
                 expect(edit).to_be_visible()
                 summary = row.locator('.quick-due > summary')
                 summary.click()
@@ -74,6 +74,12 @@ with tempfile.TemporaryDirectory(prefix='board-child-edit-ui-') as directory, Ex
                 row.get_by_role('button', name='清空', exact=True).click()
                 assert app.get_item(own)['due'] == ''
                 edit.click()
+                expect(page).to_have_url(base + f'/item?id={own}&child=1')
+                expect(page.get_by_role('dialog')).to_have_count(0)
+                if role == 'parent' and width == 390:
+                    page.screenshot(path=str(OUT / 'homework-detail-390.png'))
+                expect(page.get_by_text('全部为虚构示例数据，仅验证界面。', exact=True)).to_be_visible() if role == 'parent' and width == 320 else None
+                page.get_by_role('link', name='修改', exact=True).click()
                 expect(page.locator('#edit-title')).to_have_value('数学练习册第十页')
                 expect(page.get_by_role('dialog', name='修改作业')).to_be_visible()
                 if role == 'parent' and width in (390, 834):
@@ -83,16 +89,16 @@ with tempfile.TemporaryDirectory(prefix='board-child-edit-ui-') as directory, Ex
                 page.locator('#edit-due').fill(expected)
                 assert app.get_item(own)['due'] == ''  # Full edit remains a draft until Save.
                 page.get_by_role('button', name='保存修改', exact=True).click()
-                expect(page).to_have_url(notebook_url)
+                expect(page).to_have_url(base + f'/item?id={own}&child=1')
                 assert app.get_item(own)['due'] == expected
                 assert app.get_item(own)['body'] == '虚构任务内容已修改'
                 assert app.get_item(own)['done'] == 0
-                edit.click()
+                page.get_by_role('link', name='修改', exact=True).click()
                 page.locator('#edit-body').fill('不应保存的修改')
                 page.keyboard.press('Escape')
                 expect(page.get_by_role('dialog')).to_have_count(0)
                 assert app.get_item(own)['body'] == '虚构任务内容已修改'
-                expect(page.get_by_role('link', name='修改：数学练习册第十页')).to_be_visible()
+                expect(page.get_by_role('link', name='数学练习册第十页')).to_be_visible()
                 page.goto(base + f'/item?id={own}&child=1')
                 page.locator('.quick-due > summary').click()
                 page.wait_for_function("(() => {const d=document.querySelector('.quick-due[open]');if(!d)return false;const b=d.querySelector('form').getBoundingClientRect();return b.width > 0 && b.x >= 0 && b.right <= innerWidth;})()")
@@ -109,7 +115,7 @@ with tempfile.TemporaryDirectory(prefix='board-child-edit-ui-') as directory, Ex
         page = context.new_page()
         page.request.post(base + '/admin/login', form={'password': 'fixture-parent-only'})
         page.goto(base + '/?child=1')
-        row = page.locator('.row').filter(has=page.get_by_role('link', name='修改：数学练习册第十页', exact=True))
+        row = page.locator('.row').filter(has=page.get_by_role('link', name='数学练习册第十页', exact=True))
         row.locator('.quick-due > summary').click()
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no-JS overflow'
         row.get_by_role('button', name='今天', exact=True).click()

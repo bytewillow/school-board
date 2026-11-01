@@ -631,6 +631,21 @@ transition:transform 300ms ease,box-shadow 300ms ease}
 """
 
 
+def asset_url(path):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), path.lstrip('/')), 'rb') as asset:
+        version = hashlib.sha256(asset.read()).hexdigest()[:16]
+    return path + '?v=' + version
+
+
+def pwa_version():
+    root = os.path.dirname(os.path.abspath(__file__))
+    digest = hashlib.sha256()
+    for name in ('app.py', 'sw.js', 'static/paper.js', 'static/paper.css', 'static/media.js', 'static/media.css', 'static/entry.css'):
+        with open(os.path.join(root, name), 'rb') as source:
+            digest.update(source.read())
+    return digest.hexdigest()[:16]
+
+
 def page(title, body):
     session = VIEW_SESSION.get()
     student = session and session["role"] == "student"
@@ -657,13 +672,15 @@ def page(title, body):
             f"<nav class='topnav' aria-label='顶部导航'>{topnav}</nav>"
             f"<main id='main'>{logout}{body}</main>"
             f"<nav class='bottomnav' aria-label='底部导航'>{bottomnav}</nav>"
-            "<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(function(){});}"
+            "<script>"
             "document.querySelectorAll('form').forEach(function(f){"
             "f.addEventListener('submit',function(e){"
             "if(f.dataset.submitting){e.preventDefault();return;}"
             "f.dataset.submitting='1';var b=f.querySelector('button');"
             "if(b){b.textContent='处理中…';}});});</script>"
             "</body></html>")
+    for asset in ('/static/media.css', '/static/paper.css', '/static/paper.js', '/static/media.js', '/static/entry.css'):
+        content = content.replace("'" + asset + "'", "'" + asset_url(asset) + "'")
     return content.encode()
 
 
@@ -730,19 +747,17 @@ def item_due_control(it, child=0, detail=False):
 
 def item_title(it, child=0):
     context = f"&child={child}" if child else ""
-    if item_edit_allowed(it, VIEW_SESSION.get()):
-        return (f"<a class='item-edit item-title' href='/item/edit?id={it['id']}{context}' "
-                f"data-item-detail='/item?id={it['id']}{context}' aria-label='修改：{esc(it['title'])}'>{esc(it['title'])}</a>")
-    return f"<a href='/item?id={it['id']}{context}'>{esc(it['title'])}</a>"
+    return f"<a class='item-title' href='/item?id={it['id']}{context}'>{esc(it['title'])}</a>"
 
 
 def item_actions(it, child=0, detail=False):
-    # Item text and the date itself are the controls, not a second row of buttons.
+    # Lists stay compact; editing is an explicit action after opening details.
     if not detail or not item_edit_allowed(it, VIEW_SESSION.get()):
         return ''
-    if VIEW_SESSION.get()['role'] == 'student':
-        return f"<p><a class='back' href='/item/delete?id={it['id']}'>删除</a></p>"
-    return ''
+    context = f"&child={child}" if child else ""
+    edit = f"<a class='item-edit' href='/item/edit?id={it['id']}{context}' data-item-detail='/item?id={it['id']}{context}'>修改</a>"
+    delete = f" <a class='back' href='/item/delete?id={it['id']}'>删除</a>" if VIEW_SESSION.get()['role'] == 'student' else ''
+    return f"<p>{edit}{delete}</p>"
 
 
 def notebook_return(value, fallback='/'):
@@ -779,7 +794,7 @@ def compact_row(it, child=0, show_subject=False):
     done_btn = ""
     if it["kind"] == "homework" and not it["done"]:
         done_btn = (f"<form method='post' action='/done' style='margin:0'>"
-                    f"<input type='hidden' name='id' value='{it['id']}'>"
+                    f"<input type='hidden' name='id' value='{it['id']}'><input type='hidden' name='done' value='1'>"
                     f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
     return (f"<div class='row'><div class='t'>{item_title(it, child)}"
             f"<div class='meta'>{meta}</div>{item_actions(it, child)}</div>{done_btn}</div>")
@@ -850,7 +865,7 @@ def item_card(it, children, detail=False, child=0):
         cls = "" if it["done"] else "done"
         if not it.get("child_id") and len(children) > 1:
             out += "<p class='shared-note'>这是一份历史共享作业，完成状态会同步到所有本子；新登记仅支持具体孩子，此记录未迁移或删除。</p>"
-        out += (f"<form method='post' action='/done'><input type='hidden' name='id' value='{it['id']}'>"
+        out += (f"<form method='post' action='/done'><input type='hidden' name='id' value='{it['id']}'><input type='hidden' name='done' value='{0 if it['done'] else 1}'>"
                 f"<button class='{cls}'>{label}</button></form>")
     if not detail:
         out += f"<p><a href='/item?id={it['id']}'>打开详情 →</a></p>"
@@ -1965,7 +1980,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", ctype)
-            self.send_header("Cache-Control", "public, max-age=86400")
+            # Unversioned URLs must revalidate; old installed apps used these URLs.
+            self.send_header("Cache-Control", "no-cache, max-age=0, must-revalidate")
+            if u.path == '/sw.js':
+                data = ("// release " + pwa_version() + "\n").encode() + data
+                self.send_header("Service-Worker-Allowed", "/")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -2344,12 +2363,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(error_page('没找到这条内容', '它可能不存在，或者还没到设定的显示时间。'), 404)
                 return
             conn = db()
-            conn.execute("UPDATE items SET done = 1 - done WHERE id=?", (item_id,))
+            desired = fields.get('done')
+            if desired not in (None, '0', '1'):
+                conn.close()
+                self.send_json({'ok': False}, 400)
+                return
+            done = int(desired) if desired is not None else 1 - it['done']
+            conn.execute("UPDATE items SET done = ? WHERE id=?", (done, item_id))
             conn.commit()
             conn.close()
             ref = urlparse(self.headers.get("Referer", "") or "")
             back = ref.path + ("?" + ref.query if ref.query else "")
-            self.redirect(back if back.startswith("/") else "/")
+            back = notebook_return(back)
+            if 'application/json' in self.headers.get('Accept', ''):
+                self.send_json({'ok': True, 'done': bool(done), 'redirect': back})
+            else:
+                self.redirect(back)
             return
         if u.path in ("/item/edit", "/item/delete"):
             try:

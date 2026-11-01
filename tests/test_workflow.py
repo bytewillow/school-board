@@ -774,7 +774,8 @@ class LoginTests(unittest.TestCase):
         other = self.item('其他孩子任务', child=2)
         shared = self.item('历史共享', child=0)
         parent_html = self.raw('/?child=1', cookie=self.cookie)[2]
-        self.assertIn(f"/item/edit?id={own}&child=1", parent_html)
+        self.assertIn(f"/item?id={own}&child=1", parent_html)
+        self.assertNotIn("/item/edit?id=", parent_html)
         self.assertIn('调整截止日期：自己的任务', parent_html)
         self.assertNotIn('>修改</a>', parent_html)
         self.assertNotIn('>改截止日期</summary>', parent_html)
@@ -783,7 +784,8 @@ class LoginTests(unittest.TestCase):
         self.assertNotIn('/item/delete?', detail)  # No new destructive parent shortcut.
         student = self.student()
         html = self.raw('/', cookie=student)[2]
-        self.assertIn(f"/item/edit?id={own}", html)
+        self.assertIn(f"/item?id={own}", html)
+        self.assertNotIn("/item/edit?id=", html)
         self.assertNotIn(f"/item/edit?id={other}", html)
         self.assertNotIn(f"/item/edit?id={shared}", html)
         for cookie in (self.cookie, student):
@@ -791,6 +793,34 @@ class LoginTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("data-due-target='edit-due'", body)
             self.assertIn("value='/item?id=" + str(own) + "&amp;child=1'", body)
+
+    def test_done_json_confirms_target_and_is_idempotent(self):
+        own = self.item('完成反馈')
+        headers = {'Accept': 'application/json', 'Referer': 'http://localhost/?child=1'}
+        for _ in range(2):
+            status, _, body = self.raw('/done', 'POST', {'id': own, 'done': '1'}, self.cookie, headers)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body), {'ok': True, 'done': True, 'redirect': '/?child=1'})
+            self.assertEqual(app.get_item(own)['done'], 1)
+        status, _, body = self.raw('/done', 'POST', {'id': own, 'done': '0'}, self.cookie, headers)
+        self.assertFalse(json.loads(body)['done'])
+        self.assertEqual(app.get_item(own)['done'], 0)
+        self.assertEqual(self.raw('/done', 'POST', {'id': own, 'done': 'bad'}, self.cookie, headers)[0], 400)
+        self.assertEqual(self.raw('/done', 'POST', {'id': own+1000}, self.cookie, headers)[0], 404)
+
+    def test_pwa_headers_and_content_addressed_assets(self):
+        for path in ('/sw.js', '/static/paper.css', '/static/paper.js', '/manifest.json'):
+            status, headers, body = self.raw(path)
+            self.assertEqual(status, 200)
+            self.assertIn('no-cache', headers['Cache-Control'])
+            if path == '/sw.js':
+                self.assertIn('// release ' + app.pwa_version(), body)
+                self.assertEqual(headers['Service-Worker-Allowed'], '/')
+        html = self.raw('/?child=1', cookie=self.cookie)[2]
+        for path in ('/static/paper.css', '/static/paper.js', '/static/media.js', '/static/media.css'):
+            self.assertIn(app.asset_url(path), html)
+        with patch.object(app, 'pwa_version', return_value='next-release'):
+            self.assertIn('// release next-release', self.raw('/sw.js')[2])
 
     def test_quick_due_updates_only_date(self):
         own = self.item('仅日期修改', done=True)
