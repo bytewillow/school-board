@@ -794,6 +794,41 @@ class LoginTests(unittest.TestCase):
             self.assertIn("data-due-target='edit-due'", body)
             self.assertIn("value='/item?id=" + str(own) + "&amp;child=1'", body)
 
+    def test_modern_bento_entries(self):
+        own = self.item('自己的任务')
+        parent_html = self.raw('/?child=1', 'GET', None, getattr(self, 'cookie'))[2]
+        self.assertIn('quick-add-dialog', parent_html)
+        self.assertIn('sidebar-quick-add', parent_html)
+        self.assertIn('sidebar-child-switcher', parent_html)
+        self.assertIn('theme-toggle', parent_html)
+        self.assertIn('topnav-brand', parent_html)
+        self.assertNotIn('sidebar-brand', parent_html)
+        self.assertNotIn('item-preview-btn', parent_html)
+        # The row title itself opens the drawer; no separate preview button.
+        self.assertIn(f"<a class='item-title' href='/item?id={own}&child=1'>", parent_html)
+        # Quick-add is a plain register link; JS upgrades it to the dialog.
+        self.assertIn("<a class='sidebar-quick-add' href='/register?child=1'", parent_html)
+        # Theme color follows the system scheme.
+        self.assertIn("media='(prefers-color-scheme: light)' content='#f8fafc'", parent_html)
+        self.assertIn("media='(prefers-color-scheme: dark)' content='#0b0f19'", parent_html)
+        # Parent with several children picks the child in the quick-add form.
+        self.assertIn("<select id='qa-child'", parent_html)
+        student = self.student()
+        html = self.raw('/', 'GET', None, student)[2]
+        self.assertIn('quick-add-dialog', html)
+        self.assertNotIn('sidebar-child-switcher', html)
+        # A student registers only to themself: hidden child field, no picker.
+        self.assertNotIn("<select id='qa-child'", html)
+        self.assertIn("name='child_id' value='1'", html)
+
+    def test_quick_add_defaults_to_current_subject(self):
+        subject_html = self.raw('/?child=1&' + urlencode({'subject': '数学'}),
+                                'GET', None, getattr(self, 'cookie'))[2]
+        self.assertIn("value='数学' checked", subject_html)
+        self.assertNotIn("value='语文' checked", subject_html)
+        overview_html = self.raw('/?child=1', 'GET', None, getattr(self, 'cookie'))[2]
+        self.assertIn("value='语文' checked", overview_html)
+
     def test_done_json_confirms_target_and_is_idempotent(self):
         own = self.item('完成反馈')
         headers = {'Accept': 'application/json', 'Referer': 'http://localhost/?child=1'}

@@ -1,6 +1,7 @@
-/* Original, dependency-free focus clock. No network calls or demo data. */
+/* SchoolBoard Modern Bento Scripts — Focus clock, Quick Add, Detail Drawer, Dark Theme, PWA & Celebration */
 (() => {
   'use strict';
+  // Focus Clock
   document.querySelectorAll('[data-focus-timer]').forEach(box => {
     const display = box.querySelector('.focus-time');
     const arc = box.querySelector('.focus-arc');
@@ -10,7 +11,6 @@
     const presets = [...box.querySelectorAll('[data-minutes]')];
     const key = 'school-board-focus-v1-' + box.dataset.child;
     let duration = 25 * 60, remaining = duration, deadline = null, lastShown = null;
-    // Timer-only state, scoped by notebook. Storage can be disabled in private browsing.
     try {
       const saved = JSON.parse(sessionStorage.getItem(key));
       if (saved && [900, 1500, 2700].includes(saved.duration) &&
@@ -18,9 +18,9 @@
           (saved.deadline === null || (Number.isFinite(saved.deadline) && saved.deadline <= Date.now() + saved.duration * 1000))) {
         ({duration, remaining, deadline} = saved);
       }
-    } catch (_) { /* The clock also works without storage. */ }
+    } catch (_) {}
     function save() {
-      try { sessionStorage.setItem(key, JSON.stringify({duration, remaining, deadline})); } catch (_) { /* optional */ }
+      try { sessionStorage.setItem(key, JSON.stringify({duration, remaining, deadline})); } catch (_) {}
     }
     function draw() {
       const seconds = Math.ceil(remaining);
@@ -37,7 +37,6 @@
     }
     function tick() {
       if (deadline !== null) {
-        // Deadline rather than counting interval callbacks: background-tab throttling does not slow the clock.
         remaining = Math.max(0, (deadline - Date.now()) / 1000);
         if (remaining === 0) { deadline = null; status.textContent = '时间到，休息一下吧'; save(); }
       }
@@ -78,7 +77,7 @@
   });
 })();
 
-// Deadline controls enhance ordinary forms; list date updates also work without JS.
+// Due date controls & shortcuts
 document.querySelectorAll('[data-due-shortcuts]').forEach(group => { group.hidden = false; });
 document.querySelectorAll('[data-due-target]').forEach(button => {
   button.addEventListener('click', () => {
@@ -93,7 +92,7 @@ document.querySelectorAll('[data-notebook-return]').forEach(input => {
   input.value = window.location.pathname + window.location.search;
 });
 
-// The date label is the disclosure. Choosing a date submits the same authorized POST.
+// Quick Due popover
 document.querySelectorAll('.quick-due').forEach(details => {
   details.classList.add('js-quick-due');
   const form = details.querySelector('form');
@@ -107,7 +106,6 @@ document.querySelectorAll('.quick-due').forEach(details => {
   details.addEventListener('toggle', () => {
     if (!details.open) return;
     document.querySelectorAll('.quick-due[open]').forEach(other => { if (other !== details) other.open = false; });
-    // Anchor to the viewport: detail-page metadata can reflow when its disclosure opens.
     form.style.position = 'fixed';
     form.style.left = '12px';
     const anchor = details.querySelector('summary').getBoundingClientRect();
@@ -119,7 +117,6 @@ document.querySelectorAll('.quick-due').forEach(details => {
     if (event.key === 'Escape') { event.preventDefault(); details.open = false; details.querySelector('summary').focus(); }
   });
 });
-// Close rather than leave a detached date picker behind while the page moves.
 window.addEventListener('resize', () => document.querySelectorAll('.quick-due[open]').forEach(d => { d.open = false; }));
 window.addEventListener('scroll', () => document.querySelectorAll('.quick-due[open]').forEach(d => { d.open = false; }), {passive:true});
 document.addEventListener('click', event => {
@@ -128,8 +125,7 @@ document.addEventListener('click', event => {
   });
 });
 
-// Reuse the server's permission-checked edit form. No parallel write API or optimistic save.
-// Explicit Modify opens the editor; titles always navigate to details, including without JS.
+// Edit Dialog Modal
 if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototype.showModal === 'function' && typeof window.fetch === 'function') {
   document.querySelectorAll('.item-edit[data-item-detail]').forEach(link => {
     link.addEventListener('click', async event => {
@@ -151,7 +147,6 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
         const heading = document.createElement('h2'); heading.textContent = '修改作业';
         const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', '取消修改');
         header.append(heading, close); dialog.append(header);
-        // Keep the title, body, subject and deadline close; move infrequent fields into a disclosure.
         const fieldGroup = document.createElement('div'); fieldGroup.className = 'edit-fields';
         const extra = document.createElement('details'); extra.className = 'edit-extra';
         const summary = document.createElement('summary'); summary.textContent = '更多设置'; extra.append(summary);
@@ -182,14 +177,190 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
   });
 }
 
-// Check on open/resume. Never replace a page with unsaved work automatically.
+// Global Quick Add Modal
+// The trigger is a plain link to /register; with JS it opens the dialog instead.
+(() => {
+  const dialog = document.getElementById('quick-add-dialog');
+  if (!dialog) return;
+  const subjectRadios = [...dialog.querySelectorAll('input[name="subject"]')];
+  function applySavedSubject() {
+    // A subject page already picked its subject; only the overview reuses the last one.
+    if (dialog.dataset.currentSubject) return;
+    let saved = null;
+    try { saved = localStorage.getItem('sb-qa-subject'); } catch (_) {}
+    if (!saved) return;
+    const match = subjectRadios.find(radio => radio.value === saved);
+    if (match) match.checked = true;
+  }
+  subjectRadios.forEach(radio => radio.addEventListener('change', () => {
+    try { localStorage.setItem('sb-qa-subject', radio.value); } catch (_) {}
+  }));
+  document.querySelectorAll('[data-open-quick-add]').forEach(trigger => {
+    trigger.addEventListener('click', event => {
+      if (typeof dialog.showModal !== 'function') return; // No dialog support: follow the link.
+      event.preventDefault();
+      applySavedSubject();
+      dialog.showModal();
+      const titleInput = dialog.querySelector('#qa-title');
+      if (titleInput) titleInput.focus();
+    });
+  });
+  const close = dialog.querySelector('.qa-close');
+  if (close) close.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', e => {
+    const rect = dialog.getBoundingClientRect();
+    const isIn = (e.clientX >= rect.left && e.clientX <= rect.right &&
+                  e.clientY >= rect.top && e.clientY <= rect.bottom);
+    if (!isIn) dialog.close();
+  });
+})();
+
+// Item Detail Drawer
+// A plain title click opens the drawer; Ctrl/Cmd/Shift clicks and no JS follow the link.
+(() => {
+  if (typeof HTMLDialogElement === 'undefined' || typeof window.fetch !== 'function') return;
+  document.querySelectorAll('.row a.item-title').forEach(link => {
+    link.addEventListener('click', async event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
+      event.preventDefault();
+      const url = link.href;
+      if (!url || link.dataset.loading) return;
+      link.dataset.loading = '1';
+      try {
+        const res = await fetch(url, {credentials: 'same-origin'});
+        if (!res.ok) throw new Error('preview failed');
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const card = doc.querySelector('.card');
+        if (!card) throw new Error('no item content');
+
+        const dialog = document.createElement('dialog');
+        dialog.className = 'item-drawer-dialog';
+        dialog.setAttribute('aria-label', '作业详情');
+
+        const header = document.createElement('header');
+        header.className = 'drawer-header';
+        const title = document.createElement('h2');
+        title.textContent = '作业详情';
+
+        const actions = document.createElement('div');
+        actions.className = 'drawer-actions';
+        const fullLink = document.createElement('a');
+        fullLink.className = 'drawer-full-link';
+        fullLink.href = url;
+        fullLink.textContent = '打开全屏 ↗';
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'drawer-close';
+        closeBtn.textContent = '×';
+        closeBtn.setAttribute('aria-label', '关闭详情');
+        actions.append(fullLink, closeBtn);
+        header.append(title, actions);
+
+        const body = document.createElement('div');
+        body.className = 'drawer-body';
+        body.append(card);
+        dialog.append(header, body);
+
+        // Progressive enhancement for /done inside the drawer without leaving workspace
+        card.querySelectorAll('form[action="/done"]').forEach(dForm => {
+          dForm.addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const dBtn = dForm.querySelector('button');
+            if (dBtn) dBtn.disabled = true;
+            try {
+              const dRes = await fetch('/done', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Accept': 'application/json'},
+                body: new URLSearchParams(new FormData(dForm))
+              });
+              const dResult = await dRes.json();
+              if (!dRes.ok || !dResult || typeof dResult.done !== 'boolean') throw new Error('fail');
+              if (dResult.done && typeof window.triggerCelebration === 'function') {
+                window.triggerCelebration();
+              }
+              const doneInput = dForm.querySelector('input[name="done"]');
+              if (doneInput) doneInput.value = dResult.done ? '0' : '1';
+              if (dBtn) {
+                dBtn.disabled = false;
+                dBtn.className = dResult.done ? '' : 'done';
+                dBtn.textContent = dResult.done ? '↩ 取消完成' : '✅ 标为已完成';
+              }
+              const idInput = dForm.querySelector('input[name="id"]');
+              if (idInput && idInput.value) {
+                const row = document.querySelector(`.row[data-item-id="${idInput.value}"]`);
+                if (row) {
+                  row.classList.toggle('is-done', dResult.done);
+                  const rowBtn = row.querySelector('form[action="/done"] button');
+                  if (rowBtn) {
+                    rowBtn.textContent = dResult.done ? '✓ 已完成' : '✓ 完成';
+                    rowBtn.disabled = dResult.done;
+                  }
+                }
+              }
+            } catch (_) {
+              location.assign(url);
+            }
+          });
+        });
+
+        document.body.append(dialog);
+        closeBtn.addEventListener('click', () => dialog.close());
+        dialog.addEventListener('click', e => {
+          const rect = dialog.getBoundingClientRect();
+          const isIn = (e.clientX >= rect.left && e.clientX <= rect.right &&
+                        e.clientY >= rect.top && e.clientY <= rect.bottom);
+          if (!isIn) dialog.close();
+        });
+        dialog.addEventListener('close', () => {
+          dialog.remove();
+          link.focus();
+        }, {once: true});
+        dialog.showModal();
+      } catch (_) {
+        location.assign(url);
+      } finally {
+        delete link.dataset.loading;
+      }
+    });
+  });
+})();
+
+// Dark Mode Toggle
+(() => {
+  function getTheme() {
+    const saved = localStorage.getItem('sb-theme');
+    if (saved) return saved;
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  function updateThemeButton(theme) {
+    document.querySelectorAll('.theme-toggle').forEach(btn => {
+      btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+      btn.setAttribute('aria-label', theme === 'dark' ? '切换浅色模式' : '切换深色模式');
+    });
+  }
+  const current = getTheme();
+  updateThemeButton(current);
+  document.querySelectorAll('.theme-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark' ||
+        (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      const next = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('sb-theme', next); } catch (_) {}
+      updateThemeButton(next);
+    });
+  });
+})();
+
+// PWA Service Worker
 if ('serviceWorker' in navigator) {
   let registration;
   const hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.register('/sw.js', {updateViaCache: 'none'}).then(reg => {
     registration = reg;
     return reg.update();
-  }).catch(() => { /* Network unavailable: keep current page usable. */ });
+  }).catch(() => {});
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || document.querySelector('.pwa-update')) return;
     const notice = document.createElement('div'); notice.className = 'pwa-update';
@@ -207,30 +378,35 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Only a confirmed server completion can create the one-shot celebration receipt.
+// Completion Celebration & Instant Feedback
+function triggerCelebration() {
+  const layer = document.createElement('div'); layer.className = 'completion-celebration';
+  const status = document.createElement('div'); status.className = 'completion-cheer';
+  status.setAttribute('role', 'status'); status.textContent = '又完成一项，真棒！'; layer.append(status);
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (let i = 0; i < 100; i++) {
+      const piece = document.createElement('i'); piece.className = 'confetti'; piece.setAttribute('aria-hidden', 'true');
+      piece.style.setProperty('--x', Math.random() * 100 + 'vw');
+      piece.style.setProperty('--drift', (Math.random() - .5) * 50 + 'vw');
+      piece.style.setProperty('--delay', Math.random() * .35 + 's');
+      piece.style.setProperty('--spin', (Math.random() - .5) * 1000 + 'deg');
+      piece.style.backgroundColor = ['#4f46e5', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'][i % 5];
+      layer.append(piece);
+    }
+  }
+  document.body.append(layer); setTimeout(() => layer.remove(), 3000);
+}
+window.triggerCelebration = triggerCelebration;
+
 (() => {
   const receiptKey = 'school-board-celebrate';
   try {
     const at = Number(sessionStorage.getItem(receiptKey));
     sessionStorage.removeItem(receiptKey);
     if (at && Date.now() - at >= 0 && Date.now() - at < 15000) {
-      const layer = document.createElement('div'); layer.className = 'completion-celebration';
-      const status = document.createElement('div'); status.className = 'completion-cheer';
-      status.setAttribute('role', 'status'); status.textContent = '又完成一项，真棒！'; layer.append(status);
-      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        for (let i = 0; i < 100; i++) {
-          const piece = document.createElement('i'); piece.className = 'confetti'; piece.setAttribute('aria-hidden', 'true');
-          piece.style.setProperty('--x', Math.random() * 100 + 'vw');
-          piece.style.setProperty('--drift', (Math.random() - .5) * 50 + 'vw');
-          piece.style.setProperty('--delay', Math.random() * .35 + 's');
-          piece.style.setProperty('--spin', (Math.random() - .5) * 1000 + 'deg');
-          piece.style.backgroundColor = ['#3158df', '#efb34f', '#64aa8b', '#dd7b98', '#a18bd1'][i % 5];
-          layer.append(piece);
-        }
-      }
-      document.body.append(layer); setTimeout(() => layer.remove(), 3000);
+      triggerCelebration();
     }
-  } catch (_) { /* Optional tab storage; completion still works. */ }
+  } catch (_) {}
   if (typeof fetch !== 'function') return;
   document.querySelectorAll('form[action="/done"]').forEach(form => {
     form.addEventListener('submit', async event => {
@@ -244,11 +420,11 @@ if ('serviceWorker' in navigator) {
         const result = await response.json();
         if (!response.ok || result.ok !== true || typeof result.done !== 'boolean') throw new Error('unconfirmed');
         if (result.done) {
+          // Celebrate once, on the next page, via the receipt; this page navigates away.
           try { sessionStorage.setItem(receiptKey, String(Date.now())); } catch (_) {}
         }
         location.assign(result.redirect);
       } catch (_) {
-        // Do not retry a possibly accepted mutation or celebrate an unknown outcome.
         const status = document.createElement('p'); status.setAttribute('role', 'status');
         status.textContent = '完成状态未确认，请刷新查看后再操作。';
         const refresh = document.createElement('a'); refresh.href = location.href; refresh.textContent = '刷新查看';
