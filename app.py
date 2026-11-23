@@ -499,135 +499,159 @@ def subject_meta(name):
 
 
 CSS = """
-*{box-sizing:border-box}body{font-family:-apple-system,PingFang SC,Hiragino Sans GB,Noto Sans SC,Microsoft YaHei,sans-serif;
-max-width:1240px;margin:0 auto;padding:16px;color:#2b2b2b;line-height:1.65;
-background:#f4f5f7;font-size:17px}a{color:#2f66c4;text-decoration:none}
-a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #2f66c4;outline-offset:2px}
+:root {
+  --bg: #f8fafc;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-hover-border: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-light: #eef2ff;
+  --primary-border: #c7d2fe;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07);
+}
+[data-theme="dark"] {
+  --bg: #0b0f19;
+  --card-bg: #111827;
+  --card-border: #1f2937;
+  --card-hover-border: #374151;
+  --text: #f8fafc;
+  --text-muted: #94a3b8;
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-light: #1e1b4b;
+  --primary-border: #312e81;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0f19;
+    --card-bg: #111827;
+    --card-border: #1f2937;
+    --card-hover-border: #374151;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --primary: #6366f1;
+    --primary-hover: #4f46e5;
+    --primary-light: #1e1b4b;
+    --primary-border: #312e81;
+  }
+}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
+max-width:1320px;margin:0 auto;padding:16px 20px 40px;color:var(--text);line-height:1.6;
+background:var(--bg);font-size:16px;-webkit-font-smoothing:antialiased}
+a{color:var(--primary);text-decoration:none}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
 .card,button,.chips a{transition:box-shadow 150ms ease,transform 150ms ease}
-@media(hover:hover){.card:hover{box-shadow:0 3px 10px rgba(0,0,0,.08)}}
+@media(hover:hover){.card:hover{box-shadow:var(--shadow-md)}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-.skip{position:absolute;left:-9999px}.skip:focus{left:16px;top:16px;background:#fff;padding:12px 16px;border-radius:12px;z-index:20}
-.empty{text-align:center;padding:24px 16px;color:#777}
-.empty .big{font-size:36px}
+.skip{position:absolute;left:-9999px}.skip:focus{left:16px;top:16px;background:var(--card-bg);padding:12px 16px;border-radius:12px;z-index:20}
+.empty{text-align:center;padding:32px 16px;color:var(--text-muted)}
+.empty .big{font-size:40px;margin-bottom:8px}
 button:disabled{opacity:.6;cursor:wait}
-h1{font-size:24px;margin:8px 0 4px}h2{font-size:20px;margin:0}h3{font-size:18px;margin:0 0 8px}
-.topnav{display:flex;justify-content:flex-end;gap:6px;padding:2px 0 8px;font-size:15px;color:#777}.topnav a{color:#777}
-.admin-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #e8e8e8;margin-bottom:12px}
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px}
-.admin-panel{background:#fff;border:1px solid #e8e8e8;border-radius:16px;padding:14px}
-.admin-panel h3{margin-bottom:8px}
+h1{font-size:24px;margin:8px 0 4px;font-weight:600}h2{font-size:20px;margin:0;font-weight:600}h3{font-size:18px;margin:0 0 8px;font-weight:600}
+.topnav{display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:4px 0 14px;font-size:15px;color:var(--text-muted)}
+.topnav a{color:var(--text-muted);font-weight:500;padding:6px 12px;border-radius:8px}.topnav a:hover{background:var(--primary-light);color:var(--primary)}
+.admin-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--card-border);margin-bottom:16px}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.admin-panel{background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:18px}
+.admin-panel h3{margin-bottom:10px}
 .inline-form{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .inline-form input{flex:1;margin:0}.inline-form button{flex-shrink:0}
-.arow{display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid #f0f0f0}
+.arow{display:flex;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--card-border)}
 .arow:first-of-type{border-top:0}
-.arow .t{flex:1;min-width:0}.arow .t a{color:#222}
+.arow .t{flex:1;min-width:0}.arow .t a{color:var(--text);font-weight:500}
 @media(max-width:700px){.admin-grid{grid-template-columns:1fr}}
-.admin-hub{display:grid;gap:16px;margin-top:12px}
-.admin-hub a{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #e8e8e8;border-radius:20px;padding:22px;box-shadow:0 1px 3px rgba(0,0,0,.05);color:#222}
-.admin-hub a b{flex:1;font-size:20px}
-.admin-hub a span:last-child{font-size:22px;color:#777}
-.card{background:#fff;border:1px solid #e8e8e8;border-radius:20px;
-padding:16px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
-.tag{display:inline-block;font-size:13px;background:#eef2f8;border-radius:999px;padding:3px 10px;margin-right:6px}
-.tag.pin{background:#fff3c4}
+.admin-hub{display:grid;gap:16px;margin-top:14px}
+.admin-hub a{display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:18px;padding:20px;box-shadow:var(--shadow-sm);color:var(--text)}
+.admin-hub a b{flex:1;font-size:18px}
+.admin-hub a span:last-child{font-size:20px;color:var(--text-muted)}
+.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:18px;
+padding:20px;margin:14px 0;box-shadow:var(--shadow-sm)}
+.tag{display:inline-block;font-size:12px;font-weight:500;background:var(--bg);border:1px solid var(--card-border);border-radius:999px;padding:3px 10px;margin-right:6px;color:var(--text-muted)}
+.tag.pin{background:#fffbeb;border-color:#fde68a;color:#92400e}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .chips a,.chip{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:999px;
-background:#fff;border:1px solid #ddd;color:#333;font-size:16px}
-.chips a.on{background:#2f66c4;color:#fff;border-color:#2f66c4}
+background:var(--card-bg);border:1px solid var(--card-border);color:var(--text);font-size:15px;font-weight:500}
+.chips a.on{background:var(--primary);color:#fff;border-color:var(--primary)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
 .listgrid{display:grid;grid-template-columns:1fr;gap:12px}
-.subject{border-top:6px solid #ccc}
+.subject{border-top:4px solid var(--primary)}
 .subject .head{display:flex;gap:12px;align-items:center}
-.subject .icon{width:52px;height:52px;border-radius:16px;display:flex;align-items:center;
-justify-content:center;font-size:26px;flex-shrink:0}
-.subject h2{font-size:20px}.subject .sub{color:#777;font-size:14px;margin-top:2px}
-.row{display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-top:1px solid #f0f0f0}
+.subject .icon{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;
+justify-content:center;font-size:24px;flex-shrink:0}
+.subject h2{font-size:20px}.subject .sub{color:var(--text-muted);font-size:14px;margin-top:2px}
+.row{display:flex;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--card-border)}
 .row:first-of-type{border-top:0}.row .t{flex:1;min-width:0}
-.row .t a{color:#222;font-size:16px;line-height:1.5;display:block}
-.row .meta{color:#888;font-size:13px;margin-top:2px}
+.row .t a{color:var(--text);font-size:15px;line-height:1.5;display:block}
+.row .meta{color:var(--text-muted);font-size:13px;margin-top:2px}
 .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
-input,select,textarea{font-size:17px;padding:13px;width:100%;box-sizing:border-box;margin:8px 0;
-border:1px solid #ddd;border-radius:12px;background:#fff}
-button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;
-font-size:17px;padding:0 20px;border:0;border-radius:14px;background:#2f66c4;color:#fff;cursor:pointer}
-button.danger,.btn.danger{background:#b94a48}button.done{background:#2e7d32}
-button.ghost{background:#eef2f8;color:#2f66c4}button.small{min-height:40px;font-size:15px;padding:0 14px}
-button.full{width:100%}.muted{color:#777;font-size:14px}
+input,select,textarea{font-size:16px;padding:11px 14px;width:100%;box-sizing:border-box;margin:8px 0;
+border:1px solid var(--card-border);border-radius:12px;background:var(--card-bg);color:var(--text)}
+button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;
+font-size:16px;font-weight:500;padding:0 18px;border:0;border-radius:12px;background:var(--primary);color:#fff;cursor:pointer}
+button.danger,.btn.danger{background:var(--danger)}button.done{background:var(--success)}
+button.ghost{background:var(--bg);border:1px solid var(--card-border);color:var(--text)}
+button.small{min-height:40px;font-size:14px;padding:0 14px}
+button.full{width:100%}.muted{color:var(--text-muted);font-size:14px}
 .timer{font-size:44px;text-align:center;margin:8px 0;font-variant-numeric:tabular-nums}
-.progress{height:10px;background:#eee;border-radius:999px;overflow:hidden;margin:10px 0}
-.progress i{display:block;height:100%;background:#7fb069;border-radius:999px}
+.progress{height:8px;background:var(--bg);border-radius:999px;overflow:hidden;margin:10px 0}
+.progress i{display:block;height:100%;background:var(--primary);border-radius:999px}
 audio,embed,img{max-width:100%}audio{width:100%}
-.back{display:inline-flex;min-height:48px;align-items:center;padding:0 18px;background:#fff;
-border:1px solid #ddd;border-radius:999px;font-size:16px}
-input[type=radio]{width:auto;accent-color:#2f66c4}
-input[type=checkbox]{width:22px;height:22px;accent-color:#2e7d32}
+.back{display:inline-flex;min-height:44px;align-items:center;padding:0 16px;background:var(--card-bg);
+border:1px solid var(--card-border);border-radius:999px;font-size:15px;color:var(--text)}
+input[type=radio]{width:auto;accent-color:var(--primary)}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary)}
 .bottomnav{display:none}
 @media(max-width:700px){
- body{padding:12px 12px 96px;font-size:17px}.grid{grid-template-columns:1fr;gap:12px}
- .formgrid{grid-template-columns:1fr}.card{padding:14px;border-radius:18px}
- .bottomnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:10;background:#fff;
-  border-top:1px solid #ddd;padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
- .bottomnav a{flex:1;text-align:center;padding:12px 0;font-size:16px;color:#333}
- .bottomnav a span{display:block;font-size:22px}
+ body{padding:12px 14px 96px;font-size:16px}.grid{grid-template-columns:1fr;gap:12px}
+ .formgrid{grid-template-columns:1fr}.card{padding:16px;border-radius:16px}
+ .bottomnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:100;background:var(--card-bg);
+  border-top:1px solid var(--card-border);padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+ .bottomnav a{flex:1;text-align:center;padding:10px 0;font-size:14px;color:var(--text-muted)}
+ .bottomnav a span{display:block;font-size:20px}
 }
-:root{color-scheme:light}
-.binder{display:flex;align-items:stretch;gap:0;margin-top:12px;background:#fff;
-border:1px solid #e8e8e8;border-radius:20px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05)}
-.binder-tabs{display:flex;flex-direction:column;gap:0;width:176px;flex-shrink:0;background:#f0f2f5}
-.binder-tab{display:flex;align-items:center;gap:8px;min-height:56px;padding:12px;border:0;
-border-bottom:1px solid #e8e8e8;border-left:6px solid transparent;color:#333;background:transparent}
-.binder-tab:last-child{border-bottom:0}
-.binder-tab.on{background:#fff;font-weight:700}
-.binder-tab .n{flex:1;min-width:0}.binder-tab .cnt{font-size:13px;color:#777;background:#eef2f8;
-border-radius:999px;padding:2px 8px;flex-shrink:0}
-.spine{width:30px;flex-shrink:0;background:#fff;border-right:1px solid #eee;display:flex;
-flex-direction:column;justify-content:space-evenly;align-items:center;padding:20px 0}
-.spine i{width:14px;height:14px;border-radius:50%;background:#f4f5f7;border:2px solid #ddd;display:block}
-.binder-pane{flex:1;min-width:0;background:#fff;padding:20px}
-.binder-pane .row{padding:8px 0}
-
-.notebooks{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
-.notebook{display:block;background:#fff;border:1px solid #e8e8e8;border-left:14px solid #2f66c4;
-border-radius:20px;padding:22px;box-shadow:0 1px 3px rgba(0,0,0,.05);color:#222;
-transition:transform 300ms ease,box-shadow 300ms ease}
-.notebook h2{font-size:22px}.notebook .sub{color:#777;font-size:15px;margin-top:6px}
-@media(min-width:701px){.binder{align-items:stretch}.binder-pane{max-height:calc(100dvh - 150px);overflow-y:auto}}
-@media(max-width:700px){
- .binder{flex-direction:column}.binder-tabs{flex-direction:row;overflow-x:auto;width:auto;background:#f0f2f5}
- .binder-tab{border-bottom:0;border-right:1px solid #e8e8e8;min-width:116px;flex-shrink:0}
- .binder-tab.on{background:#fff}.spine{display:none}.binder-pane{padding:16px}
- .notebooks{grid-template-columns:1fr}
-}
-@media(prefers-reduced-motion:reduce){.notebook{animation:none!important;transition:none!important}}
-@media(min-width:900px){.listgrid{grid-template-columns:1fr 1fr}}
-/* Notebook overview and task-first pages. No webfonts or external assets. */
-.notebook{display:flex;flex-direction:column;min-width:0;padding:0;overflow:hidden;transition:box-shadow 150ms ease}
-.notebook-main{display:block;padding:22px;color:inherit;flex:1;min-height:230px}
+.spine{display:none!important}
+.binder{display:flex;align-items:flex-start;gap:20px;margin-top:12px}
+.binder-tabs{display:flex;flex-direction:column;gap:4px;width:240px;flex-shrink:0;background:var(--card-bg);border:1px solid var(--card-border);border-radius:18px;padding:12px}
+.binder-tab{display:flex;align-items:center;gap:10px;min-height:46px;padding:10px 14px;border:0;border-radius:10px;color:var(--text);background:transparent;font-size:14px;font-weight:500}
+.binder-tab.on{background:var(--primary-light);color:var(--primary);font-weight:600}
+.binder-tab .n{flex:1;min-width:0}.binder-tab .cnt{font-size:12px;color:var(--text-muted);background:var(--bg);border-radius:999px;padding:2px 8px;flex-shrink:0}
+.binder-pane{flex:1;min-width:0;background:transparent;padding:0}
+.notebooks{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:12px}
+.notebook{display:flex;flex-direction:column;min-width:0;padding:0;overflow:hidden;background:var(--card-bg);border:1px solid var(--card-border);border-radius:18px;box-shadow:var(--shadow-sm);color:var(--text);transition:transform 200ms ease,box-shadow 200ms ease}
+.notebook:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.notebook-main{display:block;padding:22px;color:inherit;flex:1;min-height:220px}
 .notebook-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-.notebook-icon{display:block;width:24px;height:30px;border:2px solid currentColor;border-radius:3px;color:#657587;position:relative}.notebook-icon:before{content:"";position:absolute;left:5px;top:0;bottom:0;border-left:1px solid currentColor}.notebook-icon:after{content:"";position:absolute;left:10px;right:3px;top:8px;height:4px;border-top:1px solid currentColor;border-bottom:1px solid currentColor}.notebook-open{font-size:14px;color:#526477}
-.notebook h2{font-size:22px;overflow-wrap:anywhere}.notebook-summary{font-size:18px;margin:14px 0 6px}
-.notebook-summary strong{font-size:28px;font-variant-numeric:tabular-nums}
-.notebook-meta{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:14px;color:#59616c}
-.notebook-next{font-size:14px;color:#59616c;border-top:1px solid #edf0f3;margin-top:16px;padding-top:12px;overflow-wrap:anywhere}
-.notebook-footer{padding:8px 22px;border-top:1px solid #edf0f3;background:#fafbfc}
-.notebook-footer a{display:inline-flex;align-items:center;min-height:44px;font-size:14px}
-.book-context{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0}
-.book-context h1{font-size:20px;margin:0;overflow-wrap:anywhere}.book-context a{font-size:14px;min-height:44px;display:inline-flex;align-items:center}
+.notebook-icon{display:block;width:24px;height:30px;border:2px solid currentColor;border-radius:3px;color:var(--primary);position:relative}.notebook-icon:before{content:"";position:absolute;left:5px;top:0;bottom:0;border-left:1px solid currentColor}.notebook-icon:after{content:"";position:absolute;left:10px;right:3px;top:8px;height:4px;border-top:1px solid currentColor;border-bottom:1px solid currentColor}.notebook-open{font-size:14px;color:var(--primary);font-weight:500}
+.notebook h2{font-size:22px;overflow-wrap:anywhere}.notebook-summary{font-size:18px;margin:12px 0 6px}
+.notebook-summary strong{font-size:28px;font-variant-numeric:tabular-nums;color:var(--primary);font-weight:700}
+.notebook-meta{display:flex;flex-wrap:wrap;gap:6px 10px;font-size:13px;color:var(--text-muted)}
+.notebook-next{font-size:14px;color:var(--text-muted);border-top:1px solid var(--card-border);margin-top:14px;padding-top:12px;overflow-wrap:anywhere}
+.notebook-footer{padding:10px 22px;border-top:1px solid var(--card-border);background:var(--bg)}
+.notebook-footer a{display:inline-flex;align-items:center;min-height:44px;font-size:14px;font-weight:500;color:var(--primary)}
+.book-context{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 0 16px;padding-bottom:12px;border-bottom:1px solid var(--card-border)}
+.book-context h1{font-size:22px;margin:0;overflow-wrap:anywhere}.book-context a{font-size:14px;min-height:40px;display:inline-flex;align-items:center;padding:0 12px;border-radius:999px;border:1px solid var(--card-border);background:var(--card-bg)}
 .task-overview{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.task-overview h2{font-size:22px}
-.task-overview .muted{margin:0}.due-label{color:#8a5a25;font-weight:600}.shared-note{font-size:13px;color:#59616c;margin:6px 0}
-.subject-link{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid #edf0f3;color:#222;min-height:56px}
-.subject-link .t{flex:1}.subject-link small{display:block;color:#59616c}.subject-link .arrow{color:#647487}
-.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px}.section-heading a{font-size:14px;min-height:44px;display:flex;align-items:center}
-.entry-switch{display:flex;gap:8px;padding:5px;background:#e9edf3;border-radius:16px;margin:12px 0}
-.entry-switch[hidden],[hidden]{display:none!important}.entry-switch button{flex:1;background:transparent;color:#536174;min-height:48px}
-.entry-switch button[aria-pressed=true]{background:#fff;color:#244f94;box-shadow:0 1px 3px #00000012}
+.task-overview .muted{margin:0}.due-label{color:#b45309;font-weight:600}.shared-note{font-size:13px;color:var(--text-muted);margin:6px 0}
+.subject-link{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--card-border);color:var(--text);min-height:56px}
+.subject-link .t{flex:1}.subject-link small{display:block;color:var(--text-muted)}.subject-link .arrow{color:var(--text-muted)}
+.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 14px}.section-heading a{font-size:14px;min-height:44px;display:flex;align-items:center;color:var(--primary);font-weight:500}
+.entry-switch{display:flex;gap:8px;padding:5px;background:var(--bg);border-radius:16px;margin:12px 0}
+.entry-switch[hidden],[hidden]{display:none!important}.entry-switch button{flex:1;background:transparent;color:var(--text-muted);min-height:48px}
+.entry-switch button[aria-pressed=true]{background:var(--card-bg);color:var(--primary);box-shadow:var(--shadow-sm);font-weight:600}
 .entry-header h1{font-size:24px}.entry-header p{margin:4px 0}.entry-section>h2{font-size:20px}
-.form-field{display:block;margin:10px 0 4px;font-size:14px;color:#59616c}.advanced-fields>summary{cursor:pointer;min-height:48px;display:flex;align-items:center;color:#2f66c4;font-size:15px}
-.form-note{margin:0 0 10px;color:#59616c;font-size:13px}.draft-error{color:#a43d38;font-size:14px;margin:8px 0}.draft-card.has-error{border-color:#b94a48}
-.draft-card label{display:block;font-size:14px;color:#59616c}.draft-card label input,.draft-card label select,.draft-card label textarea{display:block}
-.binder-tab[aria-current=page]{font-weight:700}.notebook-main:focus-visible{outline-offset:-5px}.muted{color:#626b76}.row .meta{color:#626b76}
-@media(max-width:700px){.topnav{display:none}.notebooks{gap:14px;margin-top:4px}.notebook-main{min-height:0;padding:18px}.notebook-top{margin-bottom:10px}.notebook h2{font-size:21px}.notebook-summary{margin-top:10px}.notebook-next{margin-top:12px}.notebook-footer{padding:4px 18px}.book-context{margin:0 0 6px}.entry-section.card{margin-top:10px}.entry-switch{margin:10px 0}.binder-tabs{scrollbar-width:thin}.binder-tabs:after{content:'';width:18px;flex-shrink:0}.entry-switch button{padding:0 10px;font-size:16px}}
-
+.form-field{display:block;margin:10px 0 4px;font-size:14px;color:var(--text-muted)}.advanced-fields>summary{cursor:pointer;min-height:48px;display:flex;align-items:center;color:var(--primary);font-size:15px}
+.form-note{margin:0 0 10px;color:var(--text-muted);font-size:13px}.draft-error{color:var(--danger);font-size:14px;margin:8px 0}.draft-card.has-error{border-color:var(--danger)}
+.draft-card label{display:block;font-size:14px;color:var(--text-muted)}.draft-card label input,.draft-card label select,.draft-card label textarea{display:block}
+.binder-tab[aria-current=page]{font-weight:700}.notebook-main:focus-visible{outline-offset:-5px}
+@media(max-width:700px){.topnav{display:none}.notebooks{grid-template-columns:1fr;gap:14px;margin-top:4px}.notebook-main{min-height:0;padding:18px}.notebook-top{margin-bottom:10px}.notebook h2{font-size:21px}.notebook-summary{margin-top:10px}.notebook-next{margin-top:12px}.notebook-footer{padding:4px 18px}.book-context{margin:0 0 6px}.entry-section.card{margin-top:10px}.entry-switch{margin:10px 0}.binder-tabs{flex-direction:row;overflow-x:auto;width:auto;background:transparent;border:0;padding:0}.binder-tab{border-radius:999px;border:1px solid var(--card-border);background:var(--card-bg);min-width:100px;flex-shrink:0}.entry-switch button{padding:0 10px;font-size:16px}}
 """
 
 
@@ -646,6 +670,46 @@ def pwa_version():
     return digest.hexdigest()[:16]
 
 
+def quick_add_modal(child=0):
+    session = VIEW_SESSION.get()
+    children = view_children()
+    if not children:
+        return ""
+    student = session and session["role"] == "student"
+    subjects = get_subjects()
+    child_id = session["child_id"] if student else (child or (children[0]["id"] if children else 0))
+    child_field = ""
+    if not student and len(children) > 1:
+        opts = "".join(f"<option value='{c["id"]}' {'selected' if c["id"] == child_id else ''}>{esc(c["name"])}</option>" for c in children)
+        child_field = f"<div class='qa-row'><label for='qa-child'>给谁登记</label><select id='qa-child' name='child_id'>{opts}</select></div>"
+    else:
+        child_field = f"<input type='hidden' name='child_id' value='{child_id}'>"
+
+    subj_chips = "".join(
+        f"<label class='chip'><input type='radio' name='subject' value='{esc(s)}' {'checked' if s == '语文' else ''}> {esc(s)}</label>"
+        for s in subjects)
+
+    cur_today = today()
+    cur_tomorrow = (date.fromisoformat(cur_today) + timedelta(days=1)).isoformat()
+    return (f"<dialog id='quick-add-dialog' class='quick-add-dialog' aria-label='快速登记作业'>"
+            "<header class='qa-header'><h3>＋ 快速登记作业</h3><button type='button' class='qa-close' aria-label='关闭'>×</button></header>"
+            f"<form method='post' action='/add' enctype='multipart/form-data' class='qa-form'>"
+            f"{child_field}"
+            "<input type='hidden' name='kind' value='homework'>"
+            "<div class='qa-row'><label for='qa-title'>任务标题</label><input id='qa-title' name='title' placeholder='例如：数学练习册第 10 页' required></div>"
+            f"<div class='qa-row'><label>学科</label><div class='chips qa-chips'>{subj_chips}</div></div>"
+            "<div class='qa-row'><label for='qa-due'>截止日期（可选）</label><div class='qa-due-wrap'>"
+            f"<input id='qa-due' type='date' name='due'>"
+            f"<div class='qa-due-presets'><button type='button' class='ghost small' data-due-target='qa-due' data-due-value='{cur_today}'>今天</button>"
+            f"<button type='button' class='ghost small' data-due-target='qa-due' data-due-value='{cur_tomorrow}'>明天</button>"
+            "<button type='button' class='ghost small' data-due-target='qa-due' data-due-value=''>清空</button></div></div></div>"
+            "<div class='qa-row'><label for='qa-body'>要求备注（可选）</label><textarea id='qa-body' name='body' rows='3' placeholder='如：完成第1-5题并订正'></textarea></div>"
+            "<div class='qa-row'><label for='qa-file'>附件（可选，最大 50MB）</label><input id='qa-file' type='file' name='file'></div>"
+            "<button class='full entry-submit'>立即登记</button>"
+            f"<p class='qa-ai-note'><a href='/register?child={child_id}'>✨ 拍张照/说句话，用 AI 智能批量解析录入 →</a></p>"
+            "</form></dialog>")
+
+
 def page(title, body):
     session = VIEW_SESSION.get()
     student = session and session["role"] == "student"
@@ -655,21 +719,24 @@ def page(title, body):
     topnav = " ｜ ".join(f"<a href='{href}'>{label}</a>" for href, label, icon in links)
     bottomnav = ''.join(f"<a href='{href}'><span>{icon}</span>{label}</a>" for href, label, icon in links)
     logout = "<form method='post' action='/logout' class='session-bar'><button class='ghost small'>退出登录</button></form>" if student else ''
+    theme_btn = "<button type='button' class='theme-toggle' aria-label='切换深色模式' title='切换深色模式'>🌙</button>"
     content = ("<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>{esc(title)}</title><style>{CSS}</style>"
+            f"<title>{esc(title)}</title>"
+            "<script>try{var t=localStorage.getItem('sb-theme');if(!t&&window.matchMedia('(prefers-color-scheme:dark)').matches)t='dark';if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>"
+            f"<style>{CSS}</style>"
             "<link rel='stylesheet' href='/static/media.css'>"
             "<link rel='stylesheet' href='/static/paper.css'><script src='/static/paper.js' defer></script>"
             "<script src='/static/media.js' defer></script>"
             "<link rel='manifest' href='/manifest.json'>"
             "<link rel='icon' type='image/png' sizes='192x192' href='/icon-192.png'>"
             "<link rel='apple-touch-icon' href='/apple-touch-icon.png'>"
-            "<meta name='theme-color' content='#2f66c4'>"
+            "<meta name='theme-color' content='#4f46e5'>"
             "<meta name='apple-mobile-web-app-capable' content='yes'>"
             "<meta name='apple-mobile-web-app-title' content='登记簿'>"
             "<meta name='apple-mobile-web-app-status-bar-style' content='default'></head><body>"
             "<a class='skip' href='#main'>跳到内容</a>"
-            f"<nav class='topnav' aria-label='顶部导航'>{topnav}</nav>"
+            f"<nav class='topnav' aria-label='顶部导航'>{topnav} {theme_btn}</nav>"
             f"<main id='main'>{logout}{body}</main>"
             f"<nav class='bottomnav' aria-label='底部导航'>{bottomnav}</nav>"
             "<script>"
@@ -794,10 +861,12 @@ def compact_row(it, child=0, show_subject=False):
     done_btn = ""
     if it["kind"] == "homework" and not it["done"]:
         done_btn = (f"<form method='post' action='/done' style='margin:0'>"
-                    f"<input type='hidden' name='id' value='{it['id']}'><input type='hidden' name='done' value='1'>"
-                    f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
-    return (f"<div class='row'><div class='t'>{item_title(it, child)}"
-            f"<div class='meta'>{meta}</div>{item_actions(it, child)}</div>{done_btn}</div>")
+                    f"<input type='hidden' name='id' value='{it["id"]}'><input type='hidden' name='done' value='1'>"
+                    f"<button class='done small' aria-label='标为已完成：{esc(it["title"])}{'（所有本子共享状态）' if not it.get("child_id") else ''}'>✓ 完成</button></form>")
+    context = f"&child={child}" if child else ""
+    preview_btn = f"<button type='button' class='item-preview-btn' data-preview-url='/item?id={it["id"]}{context}' aria-label='查看详情：{esc(it["title"])}'>详情</button>"
+    return (f"<div class='row' data-item-id='{it["id"]}'><div class='t'>{item_title(it, child)}"
+            f"<div class='meta'>{meta} {preview_btn}</div>{item_actions(it, child)}</div>{done_btn}</div>")
 
 
 def item_card(it, children, detail=False, child=0):
@@ -965,17 +1034,18 @@ def child_chips(children, child, view=""):
 
 
 def binder_tabs(subjects, per_subject, active, child, view):
-    """活页夹标签：封面“总览” + 每门一页，标签上带该门的条数，点标签就是翻页。
-    标签和纸面共用一个外框，活动标签背景就是纸面白，中间没有双边框、没有错位圆角。"""
-    tabs = [f"<a aria-current='{'page' if active == '' else 'false'}' class='binder-tab{' on' if not active else ''}' "
+    """活页夹/侧边栏标签：封面“总览” + 每门一页，标签上带该门的条数，点标签就是翻页。"""
+    tabs = ["<button type='button' class='sidebar-quick-add' data-open-quick-add aria-label='快速登记作业'>＋ 快速登记</button>",
+            f"<a aria-current='{"page" if active == "" else "false"}' class='binder-tab{" on" if not active else ""}' "
             f"href='/{qs(child, view=view)}'><span>📕</span><span class='n'>总览</span></a>"]
+    tabs.append("<div class='sidebar-section-title' aria-hidden='true'>学科分类</div>")
     for s in subjects:
         icon, bg, color = subject_meta(s)
         n = len(per_subject.get(s, []))
         if n == 0 and active != s:
             continue
-        tabs.append(f"<a aria-current='{'page' if active == s else 'false'}' "
-                    f"class='binder-tab{' on' if active == s else ''}' style='border-left:6px solid {color}' "
+        tabs.append(f"<a aria-current='{"page" if active == s else "false"}' "
+                    f"class='binder-tab{" on" if active == s else ""}' style='border-left:4px solid {color}' "
                     f"href='/{qs(child, subject=s, view=view)}'><span>{icon}</span><span class='n'>{esc(s)}</span>"
                     f"<span class='cnt'>{n}</span></a>")
     return "<nav class='binder-tabs' aria-label='学科活页夹'>" + "".join(tabs) + "</nav>"
@@ -1018,7 +1088,7 @@ def notebook_context(children, child):
 
 def notebook_covers(children, items):
     """Independent notebook summaries; shared items match the opened notebook."""
-    colors = ["#2f66c4", "#2e7d5b", "#c2702e", "#6a4fc4", "#b94a48"]
+    colors = ["#4f46e5", "#10b981", "#d97706", "#7c3aed", "#ef4444"]
     cards = []
     for c in children:
         mine = filter_child(items, c["id"])
@@ -1028,11 +1098,11 @@ def notebook_covers(children, items):
         summary = (f"<strong>{len(pending)}</strong> 项待完成" if pending else "暂无待完成作业")
         urgent = []
         if stats["overdue"]:
-            urgent.append(f"<span class='due-label'>已逾期 {stats['overdue']} 项</span>")
+            urgent.append(f"<span class='due-label overdue-badge'>已逾期 {stats['overdue']} 项</span>")
         if stats["today"]:
-            urgent.append(f"<span>今天截止 {stats['today']} 项</span>")
+            urgent.append(f"<span class='today-badge'>今天截止 {stats['today']} 项</span>")
         if stats["undated"]:
-            urgent.append(f"<span>未设日期 {stats['undated']} 项</span>")
+            urgent.append(f"<span class='undated-badge'>未设日期 {stats['undated']} 项</span>")
         if not urgent:
             urgent.append("<span>按自己的节奏来</span>" if pending else "<span>可翻看通知和学习资料</span>")
         next_item = (f"接下来 · {esc(pending[0]['subject'])} · {esc(pending[0]['title'])}"
@@ -1054,9 +1124,8 @@ def notebook_covers(children, items):
                      f"<div class='notebook-next'>{next_item}</div>"
                      f"<div class='sub'>{len(mine)} 条内容 · 含 {shared} 条共享内容</div></a>"
                      f"<footer class='notebook-footer'><a href='/register?child={c['id']}'>＋ 给{esc(c['name'])}登记</a></footer></article>")
-    return "<section class='notebooks' aria-label='选择孩子的登记簿'>" + "".join(cards) + "</section>"
-
-
+    return ("<div class='covers-header'><h1>选择孩子的作业登记簿</h1><p class='muted'>各本子独立记录、专注与归档</p></div>"
+            "<section class='notebooks' aria-label='选择孩子的登记簿'>" + "".join(cards) + "</section>")
 
 
 def add_form(subjects, children, action="/add", preselect_subject="", preselect_child=0, show_extra=True):
@@ -1123,11 +1192,12 @@ def kid_page(params):
     for s in subjects:
         per_subject[s] = [i for i in items if i["subject"] == s]
     tabs = binder_tabs(subjects, per_subject, subject, child, view)
+    qa_modal = quick_add_modal(child)
     if params.get("pending", [""])[0] == "1":
         pane = ("<h2>全部待办</h2><p class='muted'>按截止日期排序，未设日期排在最后。</p>"
                 + "".join(compact_row(i, child, show_subject=True) for i in stats["pending"])
                 + ("<p class='muted'>没有待完成作业。</p>" if not stats["pending"] else ""))
-        return contextual_page("待办 - 作业板", context + binder_wrap(tabs, pane), child)
+        return contextual_page("待办 - 作业板", context + binder_wrap(tabs, pane) + qa_modal, child)
     if subject:
         shown = [i for i in items if i["subject"] == subject]
         shown.sort(key=lambda i: (0 if i["kind"] == "homework" and not i["done"] else 1,
@@ -1147,7 +1217,7 @@ def kid_page(params):
                 f"<input type='hidden' name='subject' value='{esc(subject)}'>"
                 f"<input type='hidden' name='view' value='{esc(view)}'>"
                 f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
-        body = context + binder_wrap(tabs, pane)
+        body = context + binder_wrap(tabs, pane) + qa_modal
         return contextual_page(f"{subject} - 作业板", body, child)
     pins = [i for i in items if i["kind"] == "announcement" and i["pinned"]][:2]
     # 封面页：少量待办、提醒、各科计数，不把所有作业堆在首页。
@@ -1156,42 +1226,58 @@ def kid_page(params):
         pane = (f"<h2>搜索“{esc(q)}”</h2>" + "".join(compact_row(i, child) for i in shown) +
                 (empty_state(f"没搜到“{q}”，换个词试试，或者去登记一条。",
                              "<p><a class='back' href='/'>← 回首页</a></p>") if not shown else ""))
-        body = context + binder_wrap(tabs, pane)
+        body = context + binder_wrap(tabs, pane) + qa_modal
         return contextual_page("作业板", body, child)
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
     if len(children) > 1 and not child and not subject:
         return page("选本子 - 作业板", notebook_covers(children, visible_items(all_items())))
-    pane = ("<div class='paper-dashboard'>" + progress_widget(stats, per_subject, child) + "</div>")
-    if hidden:
-        pane += f"<p class='muted'>另有 {hidden} 条内容未到显示时间</p>"
+
+    # Bento Workspace Layout for Main Overview
     pending = stats["pending"]
-    pane += ("<div class='section-heading'><h3>接下来要做</h3>"
-             f"<a href='/{qs(child, pending='1')}' aria-label='待完成 {len(stats['pending'])} 项'>全部待办 {len(stats['pending'])} →</a></div>")
+    task_card_content = ("<div class='section-heading'><h3>接下来要做</h3>"
+                         f"<a href='/{qs(child, pending='1')}' aria-label='待完成 {len(stats['pending'])} 项'>全部待办 {len(stats['pending'])} →</a></div>")
     if pending:
-        pane += "".join(compact_row(i, child, show_subject=True) for i in pending[:3])
+        task_card_content += "".join(compact_row(i, child, show_subject=True) for i in pending[:3])
     else:
-        pane += "<p class='muted'>没有待完成作业，通知和学习资料仍可在各科翻看。</p>"
-    pane += timer_card(child)
+        task_card_content += "<p class='muted'>没有待完成作业，通知和学习资料仍可在各科翻看。</p>"
+    if hidden:
+        task_card_content += f"<p class='muted'>另有 {hidden} 条内容未到显示时间</p>"
+
+    search_form = (f"<form class='search-bar' method='get'><input name='q' aria-label='搜索全部标题和内容' placeholder='🔍 搜全部标题 / 内容…' value='{esc(q)}'>"
+                   f"<input type='hidden' name='view' value='{esc(view)}'>"
+                   f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
+
+    bento_main = f"<div class='bento-main'>{search_form}<div class='bento-card'>{task_card_content}</div></div>"
+
+    widgets = f"<div class='paper-dashboard'>{progress_widget(stats, per_subject, child)}</div>"
+    widgets += timer_card(child)
     if pins:
-        pane += ("<h3 style='margin-top:12px'>📌 提醒</h3>" +
-                 "".join(f"<p style='margin:6px 0'><a href='/item?id={i['id']}{('&child=' + str(child)) if child else ''}'>{esc(i['title'])}</a></p>"
-                         for i in pins))
-    pane += "<h3 style='margin-top:12px'>各科</h3>"
+        widgets += ("<div class='bento-card'><h3 style='margin-top:0'>📌 提醒</h3>" +
+                    "".join(f"<p style='margin:6px 0'><a href='/item?id={i['id']}{('&child=' + str(child)) if child else ''}'>{esc(i['title'])}</a></p>"
+                            for i in pins) + "</div>")
+
+    has_sub = False
+    subjects_html = "<div class='bento-card'><h3 style='margin-top:0'>各科速览</h3><div class='subject-links-grid'>"
     for s in subjects:
         sub = per_subject.get(s, [])
         if not sub:
             continue
+        has_sub = True
         icon, bg, color = subject_meta(s)
         hw_s = [i for i in sub if i["kind"] == "homework"]
         sub_line = (f"作业 {sum(1 for i in hw_s if i['done'])} / {len(hw_s)}"
                     if hw_s else f"{len(sub)} 条")
-        pane += (f"<a class='subject-link' href='/{qs(child, subject=s, view=view)}'>"
-                 f"<span aria-hidden='true'>{icon}</span><span class='t'>{esc(s)}<small>{sub_line}</small></span>"
-                 "<span class='arrow' aria-hidden='true'>→</span></a>")
-    pane += (f"<form method='get'><input name='q' aria-label='搜索全部标题和内容' placeholder='搜全部标题 / 内容' value='{esc(q)}'>"
-             f"<input type='hidden' name='view' value='{esc(view)}'>"
-             f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
-    body = context + binder_wrap(tabs, pane)
+        subjects_html += (f"<a class='subject-link' href='/{qs(child, subject=s, view=view)}'>"
+                          f"<span aria-hidden='true'>{icon}</span><span class='t'>{esc(s)}<small>{sub_line}</small></span>"
+                          "<span class='arrow' aria-hidden='true'>→</span></a>")
+    subjects_html += "</div></div>"
+    if has_sub:
+        widgets += subjects_html
+
+    bento_side = f"<div class='bento-side'>{widgets}</div>"
+    pane = f"<div class='bento-layout'>{bento_main}{bento_side}</div>"
+
+    body = context + binder_wrap(tabs, pane) + qa_modal
     return contextual_page("作业板", body, child)
 
 
