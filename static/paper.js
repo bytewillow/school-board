@@ -178,11 +178,28 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
 }
 
 // Global Quick Add Modal
+// The trigger is a plain link to /register; with JS it opens the dialog instead.
 (() => {
   const dialog = document.getElementById('quick-add-dialog');
   if (!dialog) return;
-  document.querySelectorAll('[data-open-quick-add]').forEach(btn => {
-    btn.addEventListener('click', () => {
+  const subjectRadios = [...dialog.querySelectorAll('input[name="subject"]')];
+  function applySavedSubject() {
+    // A subject page already picked its subject; only the overview reuses the last one.
+    if (dialog.dataset.currentSubject) return;
+    let saved = null;
+    try { saved = localStorage.getItem('sb-qa-subject'); } catch (_) {}
+    if (!saved) return;
+    const match = subjectRadios.find(radio => radio.value === saved);
+    if (match) match.checked = true;
+  }
+  subjectRadios.forEach(radio => radio.addEventListener('change', () => {
+    try { localStorage.setItem('sb-qa-subject', radio.value); } catch (_) {}
+  }));
+  document.querySelectorAll('[data-open-quick-add]').forEach(trigger => {
+    trigger.addEventListener('click', event => {
+      if (typeof dialog.showModal !== 'function') return; // No dialog support: follow the link.
+      event.preventDefault();
+      applySavedSubject();
       dialog.showModal();
       const titleInput = dialog.querySelector('#qa-title');
       if (titleInput) titleInput.focus();
@@ -199,14 +216,16 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
 })();
 
 // Item Detail Drawer
+// A plain title click opens the drawer; Ctrl/Cmd/Shift clicks and no JS follow the link.
 (() => {
   if (typeof HTMLDialogElement === 'undefined' || typeof window.fetch !== 'function') return;
-  document.querySelectorAll('.item-preview-btn').forEach(btn => {
-    btn.addEventListener('click', async event => {
+  document.querySelectorAll('.row a.item-title').forEach(link => {
+    link.addEventListener('click', async event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
       event.preventDefault();
-      const url = btn.dataset.previewUrl;
-      if (!url || btn.dataset.loading) return;
-      btn.dataset.loading = '1';
+      const url = link.href;
+      if (!url || link.dataset.loading) return;
+      link.dataset.loading = '1';
       try {
         const res = await fetch(url, {credentials: 'same-origin'});
         if (!res.ok) throw new Error('preview failed');
@@ -295,13 +314,13 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
         });
         dialog.addEventListener('close', () => {
           dialog.remove();
-          btn.focus();
+          link.focus();
         }, {once: true});
         dialog.showModal();
       } catch (_) {
         location.assign(url);
       } finally {
-        delete btn.dataset.loading;
+        delete link.dataset.loading;
       }
     });
   });

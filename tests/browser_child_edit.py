@@ -74,6 +74,10 @@ with tempfile.TemporaryDirectory(prefix='board-child-edit-ui-') as directory, Ex
                 row.get_by_role('button', name='清空', exact=True).click()
                 assert app.get_item(own)['due'] == ''
                 edit.click()
+                # Title opens the detail drawer; the full page is one link away.
+                expect(page.get_by_role('dialog', name='作业详情')).to_be_visible()
+                expect(page).to_have_url(notebook_url)
+                page.get_by_role('link', name='打开全屏 ↗', exact=True).click()
                 expect(page).to_have_url(base + f'/item?id={own}&child=1')
                 expect(page.get_by_role('dialog')).to_have_count(0)
                 if role == 'parent' and width == 390:

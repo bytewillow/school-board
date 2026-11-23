@@ -194,14 +194,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .topnav {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 12px;
   padding: 6px 0 16px;
   font-size: 15px;
   color: var(--text-muted);
 }
 .topnav-brand {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 8px;
   font-size: 18px;
@@ -216,6 +216,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
 }
 .topnav a {
   display: inline-flex;
@@ -431,25 +432,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   position: sticky;
   top: 16px;
 }
-.sidebar-brand {
-  margin-bottom: 12px;
-  padding: 4px 6px;
-}
-.sidebar-brand-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text);
-  text-decoration: none;
-}
-.sidebar-brand-link:hover {
-  color: var(--primary);
-}
-.sidebar-brand-icon {
-  font-size: 20px;
-}
 .sidebar-child-switcher {
   display: flex;
   background: var(--bg);
@@ -631,7 +613,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .row .t { flex: 1; min-width: 0; }
 .row .t .item-title {
-  min-height: 32px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   font-size: 15px;
@@ -669,26 +651,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   color: #fff;
   border-color: var(--success);
 }
-.row .item-preview-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 1px 8px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-  border: 1px solid var(--card-border);
-  background: var(--bg);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.row .item-preview-btn:hover {
-  background: var(--primary-light);
-  color: var(--primary);
-  border-color: var(--primary-border);
-}
 .row.is-done { opacity: .6; }
 .row.is-done .t a { text-decoration: line-through; }
 
@@ -702,7 +664,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .quick-due > summary {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 44px; /* 44px touch target, as before the restyle */
   line-height: 1.4;
   padding: 2px 8px;
   border-radius: 6px;
@@ -731,8 +693,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   box-sizing: border-box;
 }
 .js-quick-due .quick-due-form { position: absolute; }
+/* Without JS the form stays in flow: cap it at its container instead of 280px. */
+.quick-due:not(.js-quick-due) .quick-due-form { width: auto; max-width: 100%; }
 .due-presets { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
-.due-presets button { flex: 1; min-width: 48px; min-height: 36px; padding: 0 6px; font-size: 12px; }
+.due-presets button { flex: 1; min-width: 48px; min-height: 44px; padding: 0 6px; font-size: 12px; }
 .due-custom { display: flex; gap: 6px; align-items: center; }
 .due-custom input { flex: 1; min-height: 40px; margin: 0; font-size: 13px; }
 .js-due .due-save { display: none; }
@@ -1245,7 +1209,6 @@ dialog:not([open]) {
   .topnav-brand { display: flex; }
   .topnav-links { display: none; }
   .binder { flex-direction: column; gap: 14px; }
-  .sidebar-brand { display: none; }
   .sidebar-child-switcher { margin-bottom: 0; flex-shrink: 0; }
   .sidebar-child-tab { white-space: nowrap; padding: 6px 12px; }
   .binder-tabs {
@@ -1253,10 +1216,12 @@ dialog:not([open]) {
     overflow-x: auto;
     width: 100%;
     padding: 6px 4px;
-    background: transparent;
+    background: var(--bg);
     border: 0;
     box-shadow: none;
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 80;
     scrollbar-width: none;
   }
   .binder-tabs::-webkit-scrollbar { display: none; }

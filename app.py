@@ -654,7 +654,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary)}
 .form-note{margin:0 0 10px;color:var(--text-muted);font-size:13px}.draft-error{color:var(--danger);font-size:14px;margin:8px 0}.draft-card.has-error{border-color:var(--danger)}
 .draft-card label{display:block;font-size:14px;color:var(--text-muted)}.draft-card label input,.draft-card label select,.draft-card label textarea{display:block}
 .binder-tab[aria-current=page]{font-weight:700}.notebook-main:focus-visible{outline-offset:-5px}
-.topnav-brand{display:none;align-items:center;gap:6px;font-weight:700;font-size:17px;color:var(--text);text-decoration:none}
+.topnav-brand{display:flex;align-items:center;gap:6px;font-weight:700;font-size:17px;color:var(--text);text-decoration:none}
 .topnav-brand:hover{color:var(--primary)}
 @media(max-width:767px){.topnav{display:flex;justify-content:space-between;align-items:center;padding:8px 0 12px}.topnav-brand{display:flex}.topnav-links{display:none}.notebooks{grid-template-columns:1fr;gap:14px;margin-top:4px}.notebook-main{min-height:0;padding:18px}.notebook-top{margin-bottom:10px}.notebook h2{font-size:21px}.notebook-summary{margin-top:10px}.notebook-next{margin-top:12px}.notebook-footer{padding:4px 18px}.book-context{margin:0 0 6px}.entry-section.card{margin-top:10px}.entry-switch{margin:10px 0}.binder-tabs{flex-direction:row;overflow-x:auto;width:auto;background:transparent;border:0;padding:0}.binder-tab{border-radius:999px;border:1px solid var(--card-border);background:var(--card-bg);min-width:100px;flex-shrink:0}.entry-switch button{padding:0 10px;font-size:16px}}
 """
@@ -675,13 +675,14 @@ def pwa_version():
     return digest.hexdigest()[:16]
 
 
-def quick_add_modal(child=0):
+def quick_add_modal(child=0, subject=''):
     session = VIEW_SESSION.get()
     children = view_children()
     if not children:
         return ""
     student = session and session["role"] == "student"
     subjects = get_subjects()
+    default_subject = subject if subject in subjects else '语文'
     child_id = session["child_id"] if student else (child or (children[0]["id"] if children else 0))
     child_field = ""
     if not student and len(children) > 1:
@@ -691,12 +692,12 @@ def quick_add_modal(child=0):
         child_field = f"<input type='hidden' name='child_id' value='{child_id}'>"
 
     subj_chips = "".join(
-        f"<label class='chip'><input type='radio' name='subject' value='{esc(s)}' {'checked' if s == '语文' else ''}> {esc(s)}</label>"
+        f"<label class='chip'><input type='radio' name='subject' value='{esc(s)}' {'checked' if s == default_subject else ''}> {esc(s)}</label>"
         for s in subjects)
 
     cur_today = today()
     cur_tomorrow = (date.fromisoformat(cur_today) + timedelta(days=1)).isoformat()
-    return (f"<dialog id='quick-add-dialog' class='quick-add-dialog' aria-label='快速登记作业'>"
+    return (f"<dialog id='quick-add-dialog' class='quick-add-dialog' aria-label='快速登记作业' data-current-subject='{esc(subject)}'>"
             "<header class='qa-header'><h3>＋ 快速登记作业</h3><button type='button' class='qa-close' aria-label='关闭'>×</button></header>"
             f"<form method='post' action='/add' enctype='multipart/form-data' class='qa-form'>"
             f"{child_field}"
@@ -736,7 +737,8 @@ def page(title, body):
             "<link rel='manifest' href='/manifest.json'>"
             "<link rel='icon' type='image/png' sizes='192x192' href='/icon-192.png'>"
             "<link rel='apple-touch-icon' href='/apple-touch-icon.png'>"
-            "<meta name='theme-color' content='#4f46e5'>"
+            "<meta name='theme-color' media='(prefers-color-scheme: light)' content='#f8fafc'>"
+            "<meta name='theme-color' media='(prefers-color-scheme: dark)' content='#0b0f19'>"
             "<meta name='apple-mobile-web-app-capable' content='yes'>"
             "<meta name='apple-mobile-web-app-title' content='登记簿'>"
             "<meta name='apple-mobile-web-app-status-bar-style' content='default'></head><body>"
@@ -868,10 +870,8 @@ def compact_row(it, child=0, show_subject=False):
         done_btn = (f"<form method='post' action='/done' style='margin:0'>"
                     f"<input type='hidden' name='id' value='{it['id']}'><input type='hidden' name='done' value='1'>"
                     f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
-    context = f"&child={child}" if child else ""
-    preview_btn = f"<button type='button' class='item-preview-btn' data-preview-url='/item?id={it['id']}{context}' aria-label='查看详情：{esc(it['title'])}'>详情</button>"
     return (f"<div class='row' data-item-id='{it['id']}'><div class='t'>{item_title(it, child)}"
-            f"<div class='meta'>{meta} {preview_btn}</div>{item_actions(it, child)}</div>{done_btn}</div>")
+            f"<div class='meta'>{meta}</div>{item_actions(it, child)}</div>{done_btn}</div>")
 
 
 def item_card(it, children, detail=False, child=0):
@@ -1039,14 +1039,10 @@ def child_chips(children, child, view=""):
 
 
 def binder_tabs(subjects, per_subject, active, child, view, children=None, pending_count=0, is_pending=False):
-    """活页夹/侧边栏：品牌 + 孩子切换 + 快速登记 + 导航过滤(总览/待办) + 学科分类。"""
+    """活页夹/侧边栏：孩子切换 + 快速登记 + 导航过滤(总览/待办) + 学科分类。品牌在顶栏。"""
     session = VIEW_SESSION.get()
     is_student = session and session['role'] == 'student'
     tabs = []
-
-    # 品牌标识
-    tabs.append("<div class='sidebar-brand'><a href='/' class='sidebar-brand-link'>"
-                "<span class='sidebar-brand-icon'>🎒</span><span class='sidebar-brand-text'>作业板</span></a></div>")
 
     # 多孩子即时切换（当存在多个孩子且非学生角色时）
     if children and len(children) > 1 and not is_student:
@@ -1057,8 +1053,8 @@ def binder_tabs(subjects, per_subject, active, child, view, children=None, pendi
                                f"aria-current='{'page' if c['id'] == child else 'false'}'>{esc(c['name'])}</a>")
         tabs.append("<div class='sidebar-child-switcher' role='tablist' aria-label='切换孩子的本子'>" + "".join(child_pills) + "</div>")
 
-    # 高优先级快速登记按钮
-    tabs.append("<button type='button' class='sidebar-quick-add' data-open-quick-add aria-label='快速登记作业'>＋ 快速登记</button>")
+    # 高优先级快速登记入口：无 JS 时走登记页，有 JS 时拦截开弹窗。
+    tabs.append(f"<a class='sidebar-quick-add' href='/register{qs(child)}' data-open-quick-add aria-label='快速登记作业'>＋ 快速登记</a>")
 
     # 核心导航过滤（总览与全部待办）
     is_overview = (not active and not is_pending)
@@ -1223,7 +1219,7 @@ def kid_page(params):
         per_subject[s] = [i for i in items if i["subject"] == s]
     is_pending = (params.get("pending", [""])[0] == "1")
     tabs = binder_tabs(subjects, per_subject, subject, child, view, children=children, pending_count=len(stats["pending"]), is_pending=is_pending)
-    qa_modal = quick_add_modal(child)
+    qa_modal = quick_add_modal(child, subject)
     if is_pending:
         pane = ("<div class='bento-card'><h2>全部待办</h2><p class='muted'>按截止日期排序，未设日期排在最后。</p>"
                 + "".join(compact_row(i, child, show_subject=True) for i in stats["pending"])
@@ -1286,24 +1282,6 @@ def kid_page(params):
         widgets += ("<div class='bento-card'><h3 style='margin-top:0'>📌 提醒</h3>" +
                     "".join(f"<p style='margin:6px 0'><a href='/item?id={i['id']}{('&child=' + str(child)) if child else ''}'>{esc(i['title'])}</a></p>"
                             for i in pins) + "</div>")
-
-    has_sub = False
-    subjects_html = "<div class='bento-card'><h3 style='margin-top:0'>各科速览</h3><div class='subject-links-grid'>"
-    for s in subjects:
-        sub = per_subject.get(s, [])
-        if not sub:
-            continue
-        has_sub = True
-        icon, bg, color = subject_meta(s)
-        hw_s = [i for i in sub if i["kind"] == "homework"]
-        sub_line = (f"作业 {sum(1 for i in hw_s if i['done'])} / {len(hw_s)}"
-                    if hw_s else f"{len(sub)} 条")
-        subjects_html += (f"<a class='subject-link' href='/{qs(child, subject=s, view=view)}'>"
-                          f"<span aria-hidden='true'>{icon}</span><span class='t'>{esc(s)}<small>{sub_line}</small></span>"
-                          "<span class='arrow' aria-hidden='true'>→</span></a>")
-    subjects_html += "</div></div>"
-    if has_sub:
-        widgets += subjects_html
 
     bento_side = f"<div class='bento-side'>{widgets}</div>"
     pane = f"<div class='bento-layout'>{bento_main}{bento_side}</div>"
