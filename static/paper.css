@@ -689,6 +689,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   color: var(--primary);
   border-color: var(--primary-border);
 }
+.row.is-done { opacity: .6; }
+.row.is-done .t a { text-decoration: line-through; }
 
 /* Quick Due Date Controls */
 .quick-due {

@@ -213,16 +213,16 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         const card = doc.querySelector('.card');
         if (!card) throw new Error('no item content');
-        
+
         const dialog = document.createElement('dialog');
         dialog.className = 'item-drawer-dialog';
         dialog.setAttribute('aria-label', '作业详情');
-        
+
         const header = document.createElement('header');
         header.className = 'drawer-header';
         const title = document.createElement('h2');
         title.textContent = '作业详情';
-        
+
         const actions = document.createElement('div');
         actions.className = 'drawer-actions';
         const fullLink = document.createElement('a');
@@ -236,12 +236,12 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
         closeBtn.setAttribute('aria-label', '关闭详情');
         actions.append(fullLink, closeBtn);
         header.append(title, actions);
-        
+
         const body = document.createElement('div');
         body.className = 'drawer-body';
         body.append(card);
         dialog.append(header, body);
-        
+
         // Progressive enhancement for /done inside the drawer without leaving workspace
         card.querySelectorAll('form[action="/done"]').forEach(dForm => {
           dForm.addEventListener('submit', async ev => {
@@ -284,7 +284,7 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
             }
           });
         });
-        
+
         document.body.append(dialog);
         closeBtn.addEventListener('click', () => dialog.close());
         dialog.addEventListener('click', e => {
@@ -401,7 +401,7 @@ window.triggerCelebration = triggerCelebration;
         const result = await response.json();
         if (!response.ok || result.ok !== true || typeof result.done !== 'boolean') throw new Error('unconfirmed');
         if (result.done) {
-          triggerCelebration();
+          // Celebrate once, on the next page, via the receipt; this page navigates away.
           try { sessionStorage.setItem(receiptKey, String(Date.now())); } catch (_) {}
         }
         location.assign(result.redirect);
