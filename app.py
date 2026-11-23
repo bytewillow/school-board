@@ -685,7 +685,7 @@ def quick_add_modal(child=0):
     child_id = session["child_id"] if student else (child or (children[0]["id"] if children else 0))
     child_field = ""
     if not student and len(children) > 1:
-        opts = "".join(f"<option value='{c["id"]}' {'selected' if c["id"] == child_id else ''}>{esc(c["name"])}</option>" for c in children)
+        opts = "".join(f"<option value='{c['id']}' {'selected' if c['id'] == child_id else ''}>{esc(c['name'])}</option>" for c in children)
         child_field = f"<div class='qa-row'><label for='qa-child'>给谁登记</label><select id='qa-child' name='child_id'>{opts}</select></div>"
     else:
         child_field = f"<input type='hidden' name='child_id' value='{child_id}'>"
@@ -866,11 +866,11 @@ def compact_row(it, child=0, show_subject=False):
     done_btn = ""
     if it["kind"] == "homework" and not it["done"]:
         done_btn = (f"<form method='post' action='/done' style='margin:0'>"
-                    f"<input type='hidden' name='id' value='{it["id"]}'><input type='hidden' name='done' value='1'>"
-                    f"<button class='done small' aria-label='标为已完成：{esc(it["title"])}{'（所有本子共享状态）' if not it.get("child_id") else ''}'>✓ 完成</button></form>")
+                    f"<input type='hidden' name='id' value='{it['id']}'><input type='hidden' name='done' value='1'>"
+                    f"<button class='done small' aria-label='标为已完成：{esc(it['title'])}{'（所有本子共享状态）' if not it.get('child_id') else ''}'>✓ 完成</button></form>")
     context = f"&child={child}" if child else ""
-    preview_btn = f"<button type='button' class='item-preview-btn' data-preview-url='/item?id={it["id"]}{context}' aria-label='查看详情：{esc(it["title"])}'>详情</button>"
-    return (f"<div class='row' data-item-id='{it["id"]}'><div class='t'>{item_title(it, child)}"
+    preview_btn = f"<button type='button' class='item-preview-btn' data-preview-url='/item?id={it['id']}{context}' aria-label='查看详情：{esc(it['title'])}'>详情</button>"
+    return (f"<div class='row' data-item-id='{it['id']}'><div class='t'>{item_title(it, child)}"
             f"<div class='meta'>{meta} {preview_btn}</div>{item_actions(it, child)}</div>{done_btn}</div>")
 
 
