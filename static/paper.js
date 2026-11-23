@@ -191,7 +191,10 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
   const close = dialog.querySelector('.qa-close');
   if (close) close.addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', e => {
-    if (e.target === dialog) dialog.close();
+    const rect = dialog.getBoundingClientRect();
+    const isIn = (e.clientX >= rect.left && e.clientX <= rect.right &&
+                  e.clientY >= rect.top && e.clientY <= rect.bottom);
+    if (!isIn) dialog.close();
   });
 })();
 
@@ -239,10 +242,56 @@ if (typeof HTMLDialogElement !== 'undefined' && typeof HTMLDialogElement.prototy
         body.append(card);
         dialog.append(header, body);
         
+        // Progressive enhancement for /done inside the drawer without leaving workspace
+        card.querySelectorAll('form[action="/done"]').forEach(dForm => {
+          dForm.addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const dBtn = dForm.querySelector('button');
+            if (dBtn) dBtn.disabled = true;
+            try {
+              const dRes = await fetch('/done', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Accept': 'application/json'},
+                body: new URLSearchParams(new FormData(dForm))
+              });
+              const dResult = await dRes.json();
+              if (!dRes.ok || !dResult || typeof dResult.done !== 'boolean') throw new Error('fail');
+              if (dResult.done && typeof window.triggerCelebration === 'function') {
+                window.triggerCelebration();
+              }
+              const doneInput = dForm.querySelector('input[name="done"]');
+              if (doneInput) doneInput.value = dResult.done ? '0' : '1';
+              if (dBtn) {
+                dBtn.disabled = false;
+                dBtn.className = dResult.done ? '' : 'done';
+                dBtn.textContent = dResult.done ? '↩ 取消完成' : '✅ 标为已完成';
+              }
+              const idInput = dForm.querySelector('input[name="id"]');
+              if (idInput && idInput.value) {
+                const row = document.querySelector(`.row[data-item-id="${idInput.value}"]`);
+                if (row) {
+                  row.classList.toggle('is-done', dResult.done);
+                  const rowBtn = row.querySelector('form[action="/done"] button');
+                  if (rowBtn) {
+                    rowBtn.textContent = dResult.done ? '✓ 已完成' : '✓ 完成';
+                    rowBtn.disabled = dResult.done;
+                  }
+                }
+              }
+            } catch (_) {
+              location.assign(url);
+            }
+          });
+        });
+        
         document.body.append(dialog);
         closeBtn.addEventListener('click', () => dialog.close());
         dialog.addEventListener('click', e => {
-          if (e.target === dialog) dialog.close();
+          const rect = dialog.getBoundingClientRect();
+          const isIn = (e.clientX >= rect.left && e.clientX <= rect.right &&
+                        e.clientY >= rect.top && e.clientY <= rect.bottom);
+          if (!isIn) dialog.close();
         });
         dialog.addEventListener('close', () => {
           dialog.remove();
@@ -311,27 +360,32 @@ if ('serviceWorker' in navigator) {
 }
 
 // Completion Celebration & Instant Feedback
+function triggerCelebration() {
+  const layer = document.createElement('div'); layer.className = 'completion-celebration';
+  const status = document.createElement('div'); status.className = 'completion-cheer';
+  status.setAttribute('role', 'status'); status.textContent = '又完成一项，真棒！'; layer.append(status);
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (let i = 0; i < 100; i++) {
+      const piece = document.createElement('i'); piece.className = 'confetti'; piece.setAttribute('aria-hidden', 'true');
+      piece.style.setProperty('--x', Math.random() * 100 + 'vw');
+      piece.style.setProperty('--drift', (Math.random() - .5) * 50 + 'vw');
+      piece.style.setProperty('--delay', Math.random() * .35 + 's');
+      piece.style.setProperty('--spin', (Math.random() - .5) * 1000 + 'deg');
+      piece.style.backgroundColor = ['#4f46e5', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'][i % 5];
+      layer.append(piece);
+    }
+  }
+  document.body.append(layer); setTimeout(() => layer.remove(), 3000);
+}
+window.triggerCelebration = triggerCelebration;
+
 (() => {
   const receiptKey = 'school-board-celebrate';
   try {
     const at = Number(sessionStorage.getItem(receiptKey));
     sessionStorage.removeItem(receiptKey);
     if (at && Date.now() - at >= 0 && Date.now() - at < 15000) {
-      const layer = document.createElement('div'); layer.className = 'completion-celebration';
-      const status = document.createElement('div'); status.className = 'completion-cheer';
-      status.setAttribute('role', 'status'); status.textContent = '又完成一项，真棒！'; layer.append(status);
-      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        for (let i = 0; i < 100; i++) {
-          const piece = document.createElement('i'); piece.className = 'confetti'; piece.setAttribute('aria-hidden', 'true');
-          piece.style.setProperty('--x', Math.random() * 100 + 'vw');
-          piece.style.setProperty('--drift', (Math.random() - .5) * 50 + 'vw');
-          piece.style.setProperty('--delay', Math.random() * .35 + 's');
-          piece.style.setProperty('--spin', (Math.random() - .5) * 1000 + 'deg');
-          piece.style.backgroundColor = ['#4f46e5', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'][i % 5];
-          layer.append(piece);
-        }
-      }
-      document.body.append(layer); setTimeout(() => layer.remove(), 3000);
+      triggerCelebration();
     }
   } catch (_) {}
   if (typeof fetch !== 'function') return;
@@ -347,6 +401,7 @@ if ('serviceWorker' in navigator) {
         const result = await response.json();
         if (!response.ok || result.ok !== true || typeof result.done !== 'boolean') throw new Error('unconfirmed');
         if (result.done) {
+          triggerCelebration();
           try { sessionStorage.setItem(receiptKey, String(Date.now())); } catch (_) {}
         }
         location.assign(result.redirect);

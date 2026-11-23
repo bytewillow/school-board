@@ -500,6 +500,7 @@ def subject_meta(name):
 
 CSS = """
 :root {
+  color-scheme: light;
   --bg: #f8fafc;
   --card-bg: #ffffff;
   --card-border: #e2e8f0;
@@ -517,6 +518,7 @@ CSS = """
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07);
 }
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0b0f19;
   --card-bg: #111827;
   --card-border: #1f2937;
@@ -530,6 +532,7 @@ CSS = """
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0b0f19;
     --card-bg: #111827;
     --card-border: #1f2937;
@@ -651,7 +654,9 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary)}
 .form-note{margin:0 0 10px;color:var(--text-muted);font-size:13px}.draft-error{color:var(--danger);font-size:14px;margin:8px 0}.draft-card.has-error{border-color:var(--danger)}
 .draft-card label{display:block;font-size:14px;color:var(--text-muted)}.draft-card label input,.draft-card label select,.draft-card label textarea{display:block}
 .binder-tab[aria-current=page]{font-weight:700}.notebook-main:focus-visible{outline-offset:-5px}
-@media(max-width:700px){.topnav{display:none}.notebooks{grid-template-columns:1fr;gap:14px;margin-top:4px}.notebook-main{min-height:0;padding:18px}.notebook-top{margin-bottom:10px}.notebook h2{font-size:21px}.notebook-summary{margin-top:10px}.notebook-next{margin-top:12px}.notebook-footer{padding:4px 18px}.book-context{margin:0 0 6px}.entry-section.card{margin-top:10px}.entry-switch{margin:10px 0}.binder-tabs{flex-direction:row;overflow-x:auto;width:auto;background:transparent;border:0;padding:0}.binder-tab{border-radius:999px;border:1px solid var(--card-border);background:var(--card-bg);min-width:100px;flex-shrink:0}.entry-switch button{padding:0 10px;font-size:16px}}
+.topnav-brand{display:none;align-items:center;gap:6px;font-weight:700;font-size:17px;color:var(--text);text-decoration:none}
+.topnav-brand:hover{color:var(--primary)}
+@media(max-width:767px){.topnav{display:flex;justify-content:space-between;align-items:center;padding:8px 0 12px}.topnav-brand{display:flex}.topnav-links{display:none}.notebooks{grid-template-columns:1fr;gap:14px;margin-top:4px}.notebook-main{min-height:0;padding:18px}.notebook-top{margin-bottom:10px}.notebook h2{font-size:21px}.notebook-summary{margin-top:10px}.notebook-next{margin-top:12px}.notebook-footer{padding:4px 18px}.book-context{margin:0 0 6px}.entry-section.card{margin-top:10px}.entry-switch{margin:10px 0}.binder-tabs{flex-direction:row;overflow-x:auto;width:auto;background:transparent;border:0;padding:0}.binder-tab{border-radius:999px;border:1px solid var(--card-border);background:var(--card-bg);min-width:100px;flex-shrink:0}.entry-switch button{padding:0 10px;font-size:16px}}
 """
 
 
@@ -736,7 +741,7 @@ def page(title, body):
             "<meta name='apple-mobile-web-app-title' content='登记簿'>"
             "<meta name='apple-mobile-web-app-status-bar-style' content='default'></head><body>"
             "<a class='skip' href='#main'>跳到内容</a>"
-            f"<nav class='topnav' aria-label='顶部导航'>{topnav} {theme_btn}</nav>"
+            f"<nav class='topnav' aria-label='顶部导航'><a href='/' class='topnav-brand'><span class='brand-icon'>🎒</span><span>作业板</span></a><div class='topnav-links'>{topnav}</div> {theme_btn}</nav>"
             f"<main id='main'>{logout}{body}</main>"
             f"<nav class='bottomnav' aria-label='底部导航'>{bottomnav}</nav>"
             "<script>"
@@ -1033,19 +1038,44 @@ def child_chips(children, child, view=""):
     return "<div class='chips'>" + "".join(links) + "</div>"
 
 
-def binder_tabs(subjects, per_subject, active, child, view):
-    """活页夹/侧边栏标签：封面“总览” + 每门一页，标签上带该门的条数，点标签就是翻页。"""
-    tabs = ["<button type='button' class='sidebar-quick-add' data-open-quick-add aria-label='快速登记作业'>＋ 快速登记</button>",
-            f"<a aria-current='{"page" if active == "" else "false"}' class='binder-tab{" on" if not active else ""}' "
-            f"href='/{qs(child, view=view)}'><span>📕</span><span class='n'>总览</span></a>"]
+def binder_tabs(subjects, per_subject, active, child, view, children=None, pending_count=0, is_pending=False):
+    """活页夹/侧边栏：品牌 + 孩子切换 + 快速登记 + 导航过滤(总览/待办) + 学科分类。"""
+    session = VIEW_SESSION.get()
+    is_student = session and session['role'] == 'student'
+    tabs = []
+
+    # 品牌标识
+    tabs.append("<div class='sidebar-brand'><a href='/' class='sidebar-brand-link'>"
+                "<span class='sidebar-brand-icon'>🎒</span><span class='sidebar-brand-text'>作业板</span></a></div>")
+
+    # 多孩子即时切换（当存在多个孩子且非学生角色时）
+    if children and len(children) > 1 and not is_student:
+        child_pills = []
+        for c in children:
+            c_on = " on" if c["id"] == child else ""
+            child_pills.append(f"<a class='sidebar-child-tab{c_on}' href='/?child={c['id']}' "
+                               f"aria-current='{'page' if c['id'] == child else 'false'}'>{esc(c['name'])}</a>")
+        tabs.append("<div class='sidebar-child-switcher' role='tablist' aria-label='切换孩子的本子'>" + "".join(child_pills) + "</div>")
+
+    # 高优先级快速登记按钮
+    tabs.append("<button type='button' class='sidebar-quick-add' data-open-quick-add aria-label='快速登记作业'>＋ 快速登记</button>")
+
+    # 核心导航过滤（总览与全部待办）
+    is_overview = (not active and not is_pending)
+    tabs.append(f"<a aria-current='{'page' if is_overview else 'false'}' class='binder-tab{' on' if is_overview else ''}' "
+                f"href='/{qs(child, view=view)}'><span>📕</span><span class='n'>总览</span></a>")
+    tabs.append(f"<a aria-current='{'page' if is_pending else 'false'}' class='binder-tab{' on' if is_pending else ''}' "
+                f"href='/{qs(child, pending='1')}'><span>⏳</span><span class='n'>全部待办</span><span class='cnt'>{pending_count}</span></a>")
+
+    # 学科分类列表
     tabs.append("<div class='sidebar-section-title' aria-hidden='true'>学科分类</div>")
     for s in subjects:
         icon, bg, color = subject_meta(s)
         n = len(per_subject.get(s, []))
         if n == 0 and active != s:
             continue
-        tabs.append(f"<a aria-current='{"page" if active == s else "false"}' "
-                    f"class='binder-tab{" on" if active == s else ""}' style='border-left:4px solid {color}' "
+        tabs.append(f"<a aria-current='{'page' if active == s else 'false'}' "
+                    f"class='binder-tab{' on' if active == s else ''}' style='border-left:4px solid {color}' "
                     f"href='/{qs(child, subject=s, view=view)}'><span>{icon}</span><span class='n'>{esc(s)}</span>"
                     f"<span class='cnt'>{n}</span></a>")
     return "<nav class='binder-tabs' aria-label='学科活页夹'>" + "".join(tabs) + "</nav>"
@@ -1191,12 +1221,13 @@ def kid_page(params):
     per_subject = {}
     for s in subjects:
         per_subject[s] = [i for i in items if i["subject"] == s]
-    tabs = binder_tabs(subjects, per_subject, subject, child, view)
+    is_pending = (params.get("pending", [""])[0] == "1")
+    tabs = binder_tabs(subjects, per_subject, subject, child, view, children=children, pending_count=len(stats["pending"]), is_pending=is_pending)
     qa_modal = quick_add_modal(child)
-    if params.get("pending", [""])[0] == "1":
-        pane = ("<h2>全部待办</h2><p class='muted'>按截止日期排序，未设日期排在最后。</p>"
+    if is_pending:
+        pane = ("<div class='bento-card'><h2>全部待办</h2><p class='muted'>按截止日期排序，未设日期排在最后。</p>"
                 + "".join(compact_row(i, child, show_subject=True) for i in stats["pending"])
-                + ("<p class='muted'>没有待完成作业。</p>" if not stats["pending"] else ""))
+                + ("<p class='muted'>没有待完成作业。</p>" if not stats["pending"] else "") + "</div>")
         return contextual_page("待办 - 作业板", context + binder_wrap(tabs, pane) + qa_modal, child)
     if subject:
         shown = [i for i in items if i["subject"] == subject]
@@ -1205,7 +1236,7 @@ def kid_page(params):
         if q:
             shown = [i for i in shown if q in i["title"] or q in i["body"]]
         icon, bg, color = subject_meta(subject)
-        pane = (f"<div class='head' style='display:flex;gap:12px;align-items:center'>"
+        pane = (f"<div class='bento-card'><div class='head' style='display:flex;gap:12px;align-items:center'>"
                 f"<div class='icon' style='width:52px;height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:26px;background:{bg}'>{icon}</div>"
                 f"<div><h2>{esc(subject)}</h2><div class='sub'>{len(shown)} 条 · "
                 f"作业完成 {sum(1 for i in shown if i['kind'] == 'homework' and i['done'])}"
@@ -1213,19 +1244,19 @@ def kid_page(params):
                 + "".join(compact_row(i, child) for i in shown) +
                 (empty_state("这门没有匹配的内容。",
                              f"<p><a class='back' href='/register{qs(child, subject=subject)}'>去登记{esc(subject)}</a></p>") if not shown else "") +
-                f"<form method='get'><input name='q' aria-label='在这门里搜索' placeholder='在这门里搜' value='{esc(q)}'>"
+                f"<form class='search-bar' method='get'><input name='q' aria-label='在这门里搜索' placeholder='在这门里搜…' value='{esc(q)}'>"
                 f"<input type='hidden' name='subject' value='{esc(subject)}'>"
                 f"<input type='hidden' name='view' value='{esc(view)}'>"
-                f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form>")
+                f"<input type='hidden' name='child' value='{child}'><button>搜索</button></form></div>")
         body = context + binder_wrap(tabs, pane) + qa_modal
         return contextual_page(f"{subject} - 作业板", body, child)
     pins = [i for i in items if i["kind"] == "announcement" and i["pinned"]][:2]
     # 封面页：少量待办、提醒、各科计数，不把所有作业堆在首页。
     if q:
         shown = [i for i in items if q in i["title"] or q in i["body"]]
-        pane = (f"<h2>搜索“{esc(q)}”</h2>" + "".join(compact_row(i, child) for i in shown) +
+        pane = (f"<div class='bento-card'><h2>搜索“{esc(q)}”</h2>" + "".join(compact_row(i, child) for i in shown) +
                 (empty_state(f"没搜到“{q}”，换个词试试，或者去登记一条。",
-                             "<p><a class='back' href='/'>← 回首页</a></p>") if not shown else ""))
+                             "<p><a class='back' href='/'>← 回首页</a></p>") if not shown else "") + "</div>")
         body = context + binder_wrap(tabs, pane) + qa_modal
         return contextual_page("作业板", body, child)
     # 多孩且还没选本子：先看本子封面，不直接进活页夹；没有“不分本子看全部”这个需求
