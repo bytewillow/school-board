@@ -1,0 +1,38 @@
+{
+  "name": "school-board",
+  "version": "2.0.0",
+  "private": true,
+  "description": "学生作业簿：手机 / 平板 PWA，按学科记作业、专注计时、截止提醒推送",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "dev": "SCHEDULER=0 tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "start": "node --no-warnings=ExperimentalWarning dist/server/server/index.js",
+    "test": "node --no-warnings=ExperimentalWarning --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+    "import": "tsx scripts/import.ts",
+    "vapid": "web-push generate-vapid-keys"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@fontsource/space-grotesk": "^5.1.0",
+    "@preact/preset-vite": "^2.9.3",
+    "@types/node": "^22.10.2",
+    "@types/web-push": "^3.6.4",
+    "lucide-preact": "^0.468.0",
+    "preact": "^10.25.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-pwa": "^0.21.1",
+    "workbox-precaching": "^7.3.0",
+    "workbox-routing": "^7.3.0"
+  }
+}
