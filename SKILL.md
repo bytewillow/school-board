@@ -45,6 +45,10 @@ token for each setup, and the agent must use them only for that setup.
   or next Friday to an absolute date before sending.
 - `title` is optional. When omitted, the server falls back to the file name
   or the first line of the body.
+- Optional since 2.0, only for homework: `due_time` (`HH:MM`, the time the
+  homework is due on `due`; empty means 21:00), `est_minutes` (integer), and
+  `steps` (a JSON array of short strings, or one step per line). Leave them out
+  when the user did not say; older servers ignore them.
 - A successful create returns `{"ok": true, "id": ..., "title": ...}` with
   HTTP 201. If one create fails, report that item and stop until the user
   tells you how to proceed. Do not retry blindly.
@@ -55,7 +59,7 @@ token for each setup, and the agent must use them only for that setup.
   items, adding or renaming children, or adding or deleting subjects.
 - Never call an admin page or admin action with the token. Those need the
   admin login, which only the user handles in the browser.
-- Never use `/api/ai-parse`, `/api/ai-voice`, or `/api/ai-batch` from an external agent.
+- Never use `/api/ai-parse` or `/api/ai-batch` from an external agent.
   Those require a signed-in web session and are for the board's own same-origin register page (LAN or HTTPS), not API-token clients.
 
 ## 5. Public access (optional, template only)

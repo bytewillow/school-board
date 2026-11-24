@@ -1,0 +1,22 @@
+{
+  "name": "作业簿",
+  "short_name": "作业簿",
+  "description": "学生作业簿：打开就知道今晚先写哪一项",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EEF0F4",
+  "theme_color": "#FFFFFF",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "记作业", "url": "/register", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "日历", "url": "/calendar", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
