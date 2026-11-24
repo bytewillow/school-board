@@ -2,7 +2,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
-import { callLlmParse, MAX_AUDIO_BYTES, transcribe, validateDraft } from './ai.js';
+import { callLlmParse, validateDraft } from './ai.js';
 import { apiTokenOk, hasAnyApiToken } from './auth.js';
 import type { Config } from './config.js';
 import { all, type DB } from './db.js';
@@ -13,7 +13,7 @@ import {
 } from './items.js';
 
 /**
- * 对外接口，保持与旧版 app.py 一致：/api、/api/lists、/api/items、/api/ai-parse、/api/ai-batch、/api/ai-voice、/uploads/*、/health。
+ * 对外接口，保持与旧版 app.py 一致：/api、/api/lists、/api/items、/api/ai-parse、/api/ai-batch、/uploads/*、/health。
  */
 export function legacyApi(db: DB, cfg: Config) {
   const app = new Hono<Env>();
@@ -40,7 +40,6 @@ export function legacyApi(db: DB, cfg: Config) {
     ok: true, post: '/api/items', lists: '/api/lists',
     ai_parse: '/api/ai-parse (login session required)',
     ai_batch: '/api/ai-batch (login session required)',
-    ai_voice: '/api/ai-voice (login session required, child_id + audio multipart, no auto-create)',
     fields: 'title(可选，不填用文件名), subject, subject_new, kind(不填时：音频->听力，PDF->学习资料，其余->通知), body, link_url, due, visible_at, pinned, child_id；可选扩展：due_time(HH:MM), est_minutes, steps(JSON 数组或按行分隔)',
     example: 'curl -F "file=@数学练习.pdf" -F "subject=数学" -F "child_id=1" http://HOST:8765/api/items',
   }));
@@ -79,7 +78,6 @@ export function legacyApi(db: DB, cfg: Config) {
   };
   app.use('/api/ai-parse', needSession);
   app.use('/api/ai-batch', needSession);
-  app.use('/api/ai-voice', needSession);
 
   const parseCtx = (c: any, defaultChild: number | null) => {
     const s = c.get('session');
@@ -97,21 +95,6 @@ export function legacyApi(db: DB, cfg: Config) {
     const r = await callLlmParse(text, file ? { bytes: file.bytes, type: file.type } : null, parseCtx(c, Number(fields.child_id || fields.child)));
     if (!r.ok) return err(c, r.error === 'llm_not_configured' ? 503 : 502, r.error, r.message);
     return c.json({ ok: true, drafts: r.value });
-  });
-
-  app.post('/api/ai-voice', async (c) => {
-    if (contentLength(c) > MAX_AUDIO_BYTES + 64 * 1024) {
-      c.header('Connection', 'close');
-      return err(c, 413, 'audio_too_large', '音频最大 10MB，请缩短录音。');
-    }
-    const { fields, file } = await readForm(c);
-    if (!validEntryChild(c, fields)) return err(c, 400, 'invalid_child', '请选择有效的孩子，再解析作业。');
-    if (!cfg.llm.key || !cfg.stt.key) return err(c, 503, 'voice_not_configured', '语音需配置 STT_API_KEY 和 LLM_API_KEY，请改用文字或手动登记。');
-    const t = await transcribe(cfg, file?.bytes, file?.type || '');
-    if (!t.ok) return err(c, t.error === 'audio_too_large' ? 413 : ['empty_audio', 'unsupported_audio'].includes(t.error) ? 400 : 502, t.error, t.message);
-    const r = await callLlmParse(t.value, null, parseCtx(c, Number(fields.child_id || fields.child)));
-    if (!r.ok) return c.json({ ok: false, error: r.error, message: r.message, transcript: t.value }, 502);
-    return c.json({ ok: true, transcript: t.value, drafts: r.value });
   });
 
   app.post('/api/ai-batch', async (c) => {

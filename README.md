@@ -55,7 +55,6 @@ npm run import -- --url http://旧服务器:8765 --token sb_xxx --cookie "sb_ses
 | `PORT` | `8765` | |
 | `API_TOKEN` | 空 | 给外部 AI 用的令牌；也可以在管理页生成 |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_VISION_MODEL` | 空 / DeepSeek / `deepseek-chat` / 空 | 拍照识别、粘贴文字识别作业 |
-| `STT_API_KEY` / `STT_BASE_URL` / `STT_MODEL` | 空 / OpenAI / `whisper-1` | 语音识别（仅 `/api/ai-voice` 接口，界面上没有入口） |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | 空 | 推送密钥。不填会自动生成并存进数据库；`npm run vapid` 可以生成一对 |
 | `VAPID_SUBJECT` | `mailto:school-board@example.com` | 推送联系方式，**建议改成你自己的邮箱**，苹果推送会校验格式 |
 | `TZ` | 系统时区 | 截止时间、提醒按这个时区算，Docker 默认 `Asia/Shanghai` |
@@ -76,7 +75,7 @@ npm run import -- --url http://旧服务器:8765 --token sb_xxx --cookie "sb_ses
 | `GET /api/lists` | 孩子、学科、类型；配置了令牌时需要 `X-API-Token` 或 `?token=` |
 | `GET /api/items?child=&subject=` | 可见条目；返回字段与旧版完全一致 |
 | `POST /api/items` | 新建条目，表单 / multipart / JSON，成功 201 `{ok,id,title,url}`；新增可选字段 `due_time`、`est_minutes`、`steps` |
-| `POST /api/ai-parse` / `ai-batch` / `ai-voice` | 需要网页登录，给本站页面用 |
+| `POST /api/ai-parse` / `ai-batch` | 需要网页登录，给本站页面用 |
 | `GET /uploads/<文件>` | 需要网页登录，支持 Range |
 | `GET /health` | 健康检查 |
 

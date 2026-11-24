@@ -75,7 +75,7 @@ export function appApi(db: DB, cfg: Config) {
       children: s.role === 'student' ? children.filter((x) => x.id === s.child_id) : children,
       subjects: getSubjects(db),
       kinds: Object.entries(KINDS).map(([code, label]) => ({ code, label })),
-      features: { ai: !!cfg.llm.key, voice: !!cfg.llm.key && !!cfg.stt.key },
+      features: { ai: !!cfg.llm.key },
       push: { publicKey: vapidKeys(db, cfg).publicKey },
       now: new Date().toISOString(),
     });

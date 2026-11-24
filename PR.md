@@ -32,7 +32,8 @@
 | `GET /api`、`GET /api/lists`、`GET /api/items`（含 `child` / `subject` 筛选） | 路径、参数、返回字段与旧版一致 |
 | `POST /api/items` | 一致：表单 / multipart / JSON，201 `{ok,id,title,url}`，`invalid_child` 400，超过 50MB 413，标题 / 类型的推断规则、`.pic_hd` 改名规则不变。**新增**可选字段 `due_time`、`est_minutes`、`steps` |
 | `X-API-Token` / `?token=`、环境变量令牌、管理页令牌（只存哈希）、没令牌时局域网匿名 | 一致 |
-| `/api/ai-parse`、`/api/ai-batch`、`/api/ai-voice` | 一致（需要网页登录；编号任务拆分、合并后逐条重解析、周五默认周日都保留） |
+| `/api/ai-parse`、`/api/ai-batch` | 一致（需要网页登录；编号任务拆分、合并后逐条重解析、周五默认周日都保留） |
+| `/api/ai-voice`（Groq 语音转写） | 已废弃，随 2.0 移除（Groq 直连在部署环境被拦，且无代理支持；界面上也早已没有语音入口） |
 | `/uploads/*` | 一致（需要登录、学生只能看自己和共享、Range、HTML/SVG 沙箱下载） |
 | `/health`、`/manifest.json`、`/sw.js` | 地址不变 |
 | 环境变量 | 全部保留；新增可选 `VAPID_*`、`TZ` |
@@ -54,7 +55,7 @@
 - 无 JavaScript 时的表单回退。这一版是 PWA，需要 JS。README 里的设计约束已同步改写。
 - 完成时的全屏撒花，改成一条可撤销的提示。
 - 本地 PDF.js（约 3MB）：PDF 改用系统自带的查看器打开。
-- 登记页的语音录入界面（10 月已经去掉，`/api/ai-voice` 接口保留）。
+- 登记页的语音录入界面（10 月已经去掉）；Groq 语音接口已废弃，`/api/ai-voice` 随 2.0 一并移除。
 - Python 测试和 `tools/preview.py`。测试改用 `node:test` 重写，`tools/fixtures` 移到 `tests/fixtures`。
 
 ## PWA 做不到的

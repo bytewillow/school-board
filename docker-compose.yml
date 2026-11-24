@@ -11,14 +11,11 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       # 可选：外部 AI 用的令牌（也可以在管理页生成）
       - API_TOKEN=${API_TOKEN:-}
-      # 可选：AI 解析与语音转写，密钥只放 shell / .env，不提交到仓库
+      # 可选：AI 解析，密钥只放 shell / .env，不提交到仓库
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
       - LLM_VISION_MODEL=${LLM_VISION_MODEL:-}
-      - STT_API_KEY=${STT_API_KEY:-}
-      - STT_BASE_URL=${STT_BASE_URL:-https://api.openai.com/v1}
-      - STT_MODEL=${STT_MODEL:-whisper-1}
       # 推送提醒：不填会自动生成并存在数据库里；VAPID_SUBJECT 建议改成你自己的邮箱
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}

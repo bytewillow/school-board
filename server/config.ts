@@ -8,7 +8,6 @@ export interface Config {
   adminPassword: string;
   apiToken: string;
   llm: { key: string; baseUrl: string; model: string; visionModel: string };
-  stt: { key: string; baseUrl: string; model: string };
   vapid: { publicKey: string; privateKey: string; subject: string };
   webDir: string;
   scheduler: boolean;
@@ -29,11 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       baseUrl: env.LLM_BASE_URL || 'https://api.deepseek.com/v1',
       model: env.LLM_MODEL || 'deepseek-chat',
       visionModel: env.LLM_VISION_MODEL || '',
-    },
-    stt: {
-      key: env.STT_API_KEY || '',
-      baseUrl: env.STT_BASE_URL || 'https://api.openai.com/v1',
-      model: env.STT_MODEL || 'whisper-1',
     },
     vapid: {
       publicKey: env.VAPID_PUBLIC_KEY || '',

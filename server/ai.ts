@@ -1,13 +1,6 @@
-import { randomBytes } from 'node:crypto';
 import { aiDefaultDue, isoDate } from '../shared/dates.js';
 import type { Config } from './config.js';
 import { KINDS } from './items.js';
-
-export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-export const AUDIO_TYPES: Record<string, string> = {
-  'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a',
-  'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3',
-};
 
 export interface Draft { title: string; subject: string; kind: string; child_id: number; due: string; body: string }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string; message: string };
@@ -122,35 +115,4 @@ async function parseOnce(text: string, image: { bytes: Buffer; type: string } | 
     if (ctx.defaultChild !== null) d.child_id = ctx.defaultChild;
   }
   return { ok: true, value: drafts };
-}
-
-/** OpenAI 兼容的语音转写。录音只在内存里转发，不落盘；上游的错误内容不回显给页面。 */
-export async function transcribe(cfg: Config, bytes: Buffer | undefined, type: string, fetchImpl: typeof fetch = fetch): Promise<Result<string>> {
-  if (!cfg.stt.key) return fail('stt_not_configured', '未配置 STT_API_KEY，请先配置语音服务，或改用文字 / 照片。');
-  const mime = (type || '').split(';')[0].trim().toLowerCase();
-  if (!AUDIO_TYPES[mime]) return fail('unsupported_audio', '不支持这种音频格式，请使用 WebM、MP4/M4A、WAV、MP3 或 Ogg。');
-  if (!bytes || !bytes.length) return fail('empty_audio', '没有录到声音，请重新录音。');
-  if (bytes.length > MAX_AUDIO_BYTES) return fail('audio_too_large', '音频最大 10MB，请缩短录音。');
-  const boundary = 'SchoolBoardSpeech' + randomBytes(16).toString('hex');
-  const head = (name: string, value: string) => Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
-  const body = Buffer.concat([
-    head('model', cfg.stt.model), head('response_format', 'json'),
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.${AUDIO_TYPES[mime]}"\r\nContent-Type: ${mime}\r\n\r\n`),
-    bytes, Buffer.from(`\r\n--${boundary}--\r\n`),
-  ]);
-  let result: any;
-  try {
-    const res = await fetchImpl(cfg.stt.baseUrl.replace(/\/+$/, '') + '/audio/transcriptions', {
-      method: 'POST', body: new Uint8Array(body),
-      headers: { Authorization: 'Bearer ' + cfg.stt.key, 'Content-Type': 'multipart/form-data; boundary=' + boundary, 'User-Agent': 'school-board/2.0' },
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!res.ok) return fail('stt_error', `语音服务返回 ${res.status}，请检查 STT 配置及音频格式支持。`);
-    result = await res.json();
-  } catch {
-    return fail('stt_error', '语音服务连接失败或返回无效数据，请重试或改用文字。');
-  }
-  const text = result && typeof result === 'object' ? result.text : null;
-  if (typeof text !== 'string' || !text.trim()) return fail('empty_transcript', '未识别到文字，请靠近麦克风重新录音，或改用文字。');
-  return { ok: true, value: text.trim() };
 }

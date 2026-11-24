@@ -10,7 +10,7 @@ export interface Prefs { remind: boolean; before: number; daily: boolean; dailyA
 export interface Child { id: number; name: string }
 export interface Me {
   role: 'parent' | 'student'; child_id: number; children: Child[]; subjects: string[];
-  kinds: { code: string; label: string }[]; features: { ai: boolean; voice: boolean }; push: { publicKey: string };
+  kinds: { code: string; label: string }[]; features: { ai: boolean }; push: { publicKey: string };
 }
 export type DayStatus = 'ok' | 'late' | 'none' | 'today' | 'future';
 export interface Stats {

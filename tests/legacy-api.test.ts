@@ -116,12 +116,12 @@ test('/api 索引仍然列出各接口', async () => {
   const r = await (await t.req('/api')).json();
   assert.equal(r.post, '/api/items');
   assert.equal(r.lists, '/api/lists');
-  assert.ok(r.ai_parse && r.ai_batch && r.ai_voice && r.fields && r.example);
+  assert.ok(r.ai_parse && r.ai_batch && r.fields && r.example);
 });
 
-test('三个 /api/ai-* 都要网页登录', async () => {
+test('两个 /api/ai-* 都要网页登录', async () => {
   const t = setup();
-  for (const p of ['/api/ai-parse', '/api/ai-batch', '/api/ai-voice']) {
+  for (const p of ['/api/ai-parse', '/api/ai-batch']) {
     const r = await t.json(p, {});
     assert.equal(r.status, 401);
     assert.deepEqual(await r.json(), { ok: false, error: 'unauthorized' });

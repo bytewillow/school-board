@@ -59,7 +59,7 @@ token for each setup, and the agent must use them only for that setup.
   items, adding or renaming children, or adding or deleting subjects.
 - Never call an admin page or admin action with the token. Those need the
   admin login, which only the user handles in the browser.
-- Never use `/api/ai-parse`, `/api/ai-voice`, or `/api/ai-batch` from an external agent.
+- Never use `/api/ai-parse` or `/api/ai-batch` from an external agent.
   Those require a signed-in web session and are for the board's own same-origin register page (LAN or HTTPS), not API-token clients.
 
 ## 5. Public access (optional, template only)
